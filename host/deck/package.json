@@ -1,0 +1,32 @@
+{
+  "name": "pixelings",
+  "private": true,
+  "type": "module",
+  "description": "Every Claude Code session as a little pixel character on your Stream Deck, from the menu bar",
+  "scripts": {
+    "start": "node deck.js",
+    "app": "electron .",
+    "test": "node --test",
+    "icon": "node build-app.js --icons",
+    "media": "node make-media.js && npm run screenshot",
+    "screenshot": "PIXELINGS_PORT=47799 PIXELINGS_SNAPSHOT=../../docs/preview/pixelings-window.png electron .",
+    "dist": "node build-app.js",
+    "release": "node build-app.js --release",
+    "agents": "node export-agents.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@elgato-stream-deck/node": "7.8.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.7.0"
+  },
+  "version": "0.1.3",
+  "productName": "Pixelings",
+  "main": "main.js",
+  "author": "Invisionnaire",
+  "license": "GPL-3.0-only"
+}

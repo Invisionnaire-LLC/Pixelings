@@ -1,0 +1,14 @@
+{
+  "name": "pixelings",
+  "owner": {
+    "name": "Invisionnaire"
+  },
+  "description": "Pixelings: every Claude Code session as a little pixel character on your Stream Deck",
+  "plugins": [
+    {
+      "name": "pixelings",
+      "source": "./plugin",
+      "description": "Every Claude Code session's state for the Pixelings app"
+    }
+  ]
+}

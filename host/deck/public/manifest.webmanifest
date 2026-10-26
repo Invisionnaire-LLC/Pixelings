@@ -1,0 +1,10 @@
+{
+  "name": "Pixelings",
+  "short_name": "Pixelings",
+  "description": "Every Claude Code session as a Clawd on your Stream Deck",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0b0f",
+  "theme_color": "#0b0b0f",
+  "icons": [{ "src": "/icon.png", "sizes": "288x288", "type": "image/png" }]
+}

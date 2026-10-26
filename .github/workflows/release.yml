@@ -1,0 +1,75 @@
+# Builds the Pixelings downloads, a .dmg for Macs with Apple silicon and a
+# Setup .exe for Windows, each on its own system, and publishes them on a
+# GitHub release when a version tag (v0.1.0, ...) is pushed. Run it by hand
+# from the Actions tab to only build them (they are kept as the run's
+# artifacts).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      # One system failing still lets the other finish, to see both.
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: host/deck
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: host/deck/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - name: Inno Setup, for the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+      - run: npm run release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pixelings-${{ runner.os }}
+          path: host/deck/dist/release/*
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: downloads
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        # Releases here are immutable once published, so the release is made
+        # as a draft, gets its files, and only then is published.
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --draft \
+            --title "Pixelings $TAG" \
+            --generate-notes \
+            --notes "Download **Pixelings-mac-arm64.dmg** (Macs with Apple silicon) or **Pixelings-windows-x64-setup.exe** (Windows), then add the Claude Code plugin as the README shows.
+
+          The apps are not signed with a paid certificate yet. On a Mac, the first time it opens go to System Settings > Privacy & Security and click Open Anyway. On Windows, if SmartScreen stops it, click More info > Run anyway."
+          gh release upload "$TAG" downloads/* --clobber
+          gh release edit "$TAG" --draft=false --latest

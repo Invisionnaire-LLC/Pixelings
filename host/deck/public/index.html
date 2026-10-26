@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pixelings</title>
+    <meta name="description" content="Every Claude Code session as a Clawd on your Stream Deck: move them, dress them, open them, start new ones." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.png" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <style>
+      :root {
+        --bg: #0b0b0f;
+        --surface: #15151b;
+        --surface-2: #1d1d25;
+        --line: #2a2a35;
+        --text: #ececf1;
+        --muted: #9b9bab;
+        --accent: #82e6d2;
+        --accent-ink: #062b25;
+        --ask: #e25a5a;
+        --orange: #d97757;
+        --radius: 14px;
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.45 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+        color: inherit;
+      }
+      canvas {
+        image-rendering: pixelated;
+        display: block;
+      }
+
+      /* ---- Top bar ---- */
+      .bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 24px;
+        border-bottom: 1px solid var(--line);
+        position: sticky;
+        top: 0;
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: blur(12px);
+        z-index: 2;
+        -webkit-app-region: drag;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+      }
+      .brand canvas {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+      .status {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12.5px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex: none;
+      }
+      .dot.on {
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        -webkit-app-region: no-drag;
+      }
+      .bright {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      input[type='range'] {
+        accent-color: var(--accent);
+        width: 120px;
+      }
+      input[type='checkbox'] {
+        accent-color: var(--accent);
+        margin: 0;
+      }
+      .flash-on {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+      }
+      .flash-label {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: -4px;
+      }
+      /* The settings page: one size whatever is shown, its sections in a
+         sidebar on the left. */
+      .settings {
+        width: min(780px, calc(100vw - 32px));
+        height: min(600px, calc(100vh - 48px));
+        max-width: none;
+        max-height: none;
+        padding: 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--text);
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+      }
+      .settings::backdrop {
+        background: rgba(0, 0, 0, 0.55);
+      }
+      .settings[open] {
+        display: flex;
+      }
+      .settings-inner {
+        display: flex;
+        width: 100%;
+        height: 100%;
+      }
+      .settings-nav {
+        flex: none;
+        width: 180px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 18px 12px;
+        background: var(--surface-2);
+        border-right: 1px solid var(--line);
+      }
+      .settings-nav h2 {
+        margin: 0 8px 12px;
+        font-size: 17px;
+      }
+      .settings-nav button {
+        padding: 9px 12px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: none;
+        color: var(--muted);
+        font: inherit;
+        font-size: 14px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .settings-nav button:hover {
+        color: var(--text);
+      }
+      .settings-nav button[aria-selected='true'] {
+        background: var(--surface);
+        border-color: var(--line);
+        color: var(--text);
+      }
+      .settings-main {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+      }
+      .settings-close {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        z-index: 1;
+        padding: 4px 10px;
+        font-size: 16px;
+        line-height: 1;
+      }
+      .settings-body {
+        display: grid;
+        align-content: start;
+        gap: 14px;
+        height: 100%;
+        box-sizing: border-box;
+        padding: 18px 22px 22px;
+        overflow-y: auto;
+        font-size: 13px;
+      }
+      .panel-title {
+        margin: 0;
+        padding-right: 40px;
+        font-size: 17px;
+      }
+      .settings-body[hidden] {
+        display: none;
+      }
+      .setsec,
+      .flashlist {
+        display: grid;
+        gap: 10px;
+      }
+      .setsec + .setsec {
+        border-top: 1px solid var(--line);
+        padding-top: 14px;
+      }
+      .sec-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .flashrow {
+        display: grid;
+        gap: 8px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .flashrow:last-child {
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+      .flashhead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      /* A key in that moment, flashing as set: off, it shows him without. */
+      .flashpreview {
+        width: 48px;
+        height: 48px;
+        flex: none;
+        border-radius: 8px;
+        image-rendering: pixelated;
+        background: #000;
+      }
+      .flashrow .swatches {
+        gap: 8px;
+      }
+      .flashrow .swatches button {
+        width: 20px;
+        height: 20px;
+      }
+      /* The style's own option (strength or size) beside its speed. */
+      .flashopts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .flashopt {
+        display: grid;
+        gap: 4px;
+      }
+      .flashopt[hidden] {
+        display: none;
+      }
+      .flashopt .flash-label {
+        margin-bottom: 0;
+      }
+      .flashopt .seg {
+        gap: 4px;
+      }
+      .flashopt .seg button {
+        padding: 4px 0;
+        font-size: 12px;
+      }
+      /* A flash that is off shows only its name. */
+      .flashrow.off .seg,
+      .flashrow.off .swatches,
+      .flashrow.off .flashopts {
+        display: none;
+      }
+      .idle-hint {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .seg {
+        display: flex;
+        gap: 6px;
+      }
+      .seg button {
+        flex: 1;
+        padding: 6px 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-2);
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .seg button[aria-checked='true'] {
+        border-color: var(--accent);
+        color: var(--text);
+      }
+      .swatches {
+        display: flex;
+        gap: 10px;
+      }
+      .swatches button {
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border-radius: 50%;
+        border: 2px solid var(--surface);
+        outline: 1px solid var(--line);
+        cursor: pointer;
+      }
+      .swatches button[aria-checked='true'] {
+        outline: 2px solid var(--accent);
+      }
+      .btn {
+        border: 1px solid var(--line);
+        background: var(--surface-2);
+        border-radius: 10px;
+        padding: 8px 14px;
+        cursor: pointer;
+        font-weight: 550;
+        white-space: nowrap;
+      }
+      .btn:hover {
+        border-color: #3a3a48;
+      }
+      .btn.primary {
+        background: var(--accent);
+        color: var(--accent-ink);
+        border-color: transparent;
+      }
+      .btn.primary:hover {
+        filter: brightness(1.06);
+      }
+      .btn:focus-visible,
+      .key:focus-visible,
+      .pick:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      /* ---- Layout ---- */
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 380px;
+        gap: 24px;
+        padding: 24px;
+        max-width: 1280px;
+        margin: 0 auto;
+        align-items: start;
+      }
+
+      /* ---- The deck ---- */
+      .deck-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+      .tabs {
+        display: flex;
+        gap: 6px;
+        align-self: stretch;
+        justify-content: center;
+      }
+      .tabs[hidden] {
+        display: none;
+      }
+      .tab {
+        border: 1px solid var(--line);
+        background: transparent;
+        border-radius: 999px;
+        padding: 4px 12px;
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .tab[aria-selected='true'] {
+        background: var(--surface-2);
+        color: var(--text);
+      }
+      .tab.asking {
+        border-color: var(--ask);
+      }
+      .deck {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: clamp(8px, 1.6vw, 16px);
+        padding: clamp(14px, 2.4vw, 26px);
+        width: min(100%, 760px);
+        background: linear-gradient(180deg, #19191f, #0f0f13);
+        border: 1px solid #26262f;
+        border-radius: 22px;
+        box-shadow:
+          0 20px 50px rgba(0, 0, 0, 0.45),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      }
+      .key {
+        position: relative;
+        aspect-ratio: 1;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #000;
+        box-shadow:
+          0 0 0 1px #000,
+          0 2px 0 #2a2a33;
+        cursor: pointer;
+        transition: transform 0.08s ease;
+      }
+      .key canvas {
+        width: 100%;
+        height: 100%;
+      }
+      .key.empty {
+        cursor: default;
+      }
+      .key:active:not(.empty) {
+        transform: translateY(1px);
+      }
+      .key.selected {
+        box-shadow:
+          0 0 0 2px #19191f,
+          0 0 0 3px rgba(255, 255, 255, 0.55);
+      }
+      .key.over {
+        box-shadow: 0 0 0 2px #fff;
+      }
+      .key.dragging {
+        opacity: 0.35;
+      }
+      .hint {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12.5px;
+        text-align: center;
+      }
+
+      /* ---- The panel ---- */
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+        position: sticky;
+        top: 88px;
+        max-height: calc(100vh - 112px);
+        overflow-y: auto;
+      }
+      .empty-panel {
+        padding: 40px 24px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .empty-panel canvas {
+        width: 96px;
+        height: 96px;
+        margin: 0 auto 12px;
+        border-radius: 14px;
+        opacity: 0.8;
+      }
+      .who {
+        display: flex;
+        gap: 14px;
+        padding: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .who canvas {
+        width: 96px;
+        height: 96px;
+        border-radius: 12px;
+        flex: none;
+      }
+      .who h2 {
+        margin: 0 0 6px;
+        font-size: 16px;
+        font-weight: 650;
+        line-height: 1.3;
+        overflow-wrap: anywhere;
+      }
+      .chip {
+        display: inline-block;
+        padding: 2px 9px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        background: var(--surface-2);
+        color: var(--muted);
+      }
+      .chip.ask {
+        background: color-mix(in srgb, var(--ask) 22%, transparent);
+        color: #ffb3b3;
+      }
+      .chip.done {
+        background: color-mix(in srgb, var(--accent) 18%, transparent);
+        color: var(--accent);
+      }
+      .chip.working {
+        color: var(--text);
+      }
+      .chip.compacting {
+        background: rgba(110, 150, 255, 0.18);
+        color: #a9c1ff;
+      }
+      .facts {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 14px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        font-size: 13px;
+      }
+      .facts dt {
+        color: var(--muted);
+      }
+      .facts dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .ctx {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .ctx-bar {
+        flex: 1;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--surface-2);
+        overflow: hidden;
+      }
+      .ctx-bar span {
+        display: block;
+        height: 100%;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .actions .btn {
+        flex: 1;
+      }
+      .section {
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .section:last-child {
+        border-bottom: 0;
+      }
+      .section h3 {
+        margin: 0 0 10px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .picks {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .pick {
+        border: 1px solid var(--line);
+        background: #16161c;
+        border-radius: 9px;
+        padding: 0;
+        cursor: pointer;
+        overflow: hidden;
+        aspect-ratio: 1;
+      }
+      .pick canvas {
+        width: 100%;
+        height: 100%;
+      }
+      .pick[aria-pressed='true'] {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent);
+      }
+      .swatches {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .swatch {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+        padding: 0;
+        outline-offset: 2px;
+      }
+      .swatch[aria-pressed='true'] {
+        border-color: var(--text);
+      }
+      .habits {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 8px 12px;
+        align-items: center;
+        font-size: 13px;
+      }
+      .habits label {
+        color: var(--muted);
+      }
+      select {
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 6px 8px;
+      }
+
+      /* ---- New agent ---- */
+      dialog {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--text);
+        padding: 0;
+        width: min(460px, calc(100vw - 32px));
+      }
+      dialog::backdrop {
+        background: rgba(0, 0, 0, 0.55);
+      }
+      dialog form {
+        padding: 20px;
+        display: grid;
+        gap: 14px;
+      }
+      dialog h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+      dialog p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+      }
+      .row input {
+        flex: 1;
+        min-width: 0;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 8px 10px;
+      }
+      .end {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .error {
+        color: #ffb3b3;
+        font-size: 13px;
+        min-height: 1em;
+      }
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 16px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+
+      /* In the app's window the bar is its title bar: clear of the window
+         buttons, and draggable everywhere but the controls. */
+      .in-app .bar {
+        padding-left: 88px;
+        user-select: none;
+      }
+      .in-app .brand canvas {
+        -webkit-app-region: no-drag;
+      }
+
+      @media (max-width: 900px) {
+        main {
+          grid-template-columns: 1fr;
+          padding: 16px;
+        }
+        .panel {
+          position: static;
+          max-height: none;
+        }
+        .bar {
+          padding: 12px 16px;
+          flex-wrap: wrap;
+        }
+        .bright span {
+          display: none;
+        }
+        input[type='range'] {
+          width: 90px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .key {
+          transition: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="bar">
+      <div class="brand">
+        <canvas id="logo" width="72" height="72" aria-hidden="true"></canvas>
+        <div>
+          <h1>Pixelings</h1>
+          <p class="status"><span id="dot" class="dot"></span><span id="status">Connecting…</span></p>
+        </div>
+      </div>
+      <div class="controls">
+        <label class="bright"><span>Brightness</span><input id="brightness" type="range" min="0" max="100" aria-label="Stream Deck brightness" /></label>
+        <button id="settings-open" class="btn" type="button">Settings</button>
+        <dialog id="settings" class="settings" aria-labelledby="settings-title">
+          <div class="settings-inner">
+            <nav class="settings-nav" role="tablist" aria-orientation="vertical" aria-labelledby="settings-title">
+              <h2 id="settings-title">Settings</h2>
+              <button type="button" role="tab" data-tab="general">General</button>
+              <button type="button" role="tab" data-tab="flash">Flash</button>
+              <button type="button" role="tab" data-tab="agents">Agents</button>
+            </nav>
+            <div class="settings-main">
+            <button id="settings-close" class="btn settings-close" type="button" aria-label="Close settings">×</button>
+            <div class="settings-body" role="tabpanel" data-panel="general">
+              <h2 class="panel-title">General</h2>
+              <section class="setsec">
+                <h3 class="sec-title">Startup</h3>
+                <label class="flash-on"><input id="open-at-login" type="checkbox" />Start Pixelings when you log in</label>
+                <p id="login-hint" class="idle-hint"></p>
+              </section>
+              <section class="setsec">
+                <h3 class="sec-title">About</h3>
+                <p id="app-version" class="idle-hint"></p>
+              </section>
+            </div>
+            <div class="settings-body" role="tabpanel" data-panel="flash" hidden>
+              <h2 class="panel-title">Flash</h2>
+              <p class="idle-hint">What makes a key flash, each with its own style, colour and speed. The key beside each shows how it looks.</p>
+              <div id="flashcard" class="flashlist"></div>
+            </div>
+            <div class="settings-body" role="tabpanel" data-panel="agents" hidden>
+              <h2 class="panel-title">Agents</h2>
+            <section class="setsec">
+              <h3 class="sec-title">Idle</h3>
+              <div class="flash-label">Hide agents idle for</div>
+              <div id="hide-idle" class="seg" role="radiogroup" aria-label="Hide agents idle for"></div>
+              <p class="idle-hint">Waiting for you isn't idle. An agent turns idle 30 minutes after it finishes and waits for you; then this clock starts. Working and asking agents always keep their keys.</p>
+            </section>
+            <section class="setsec">
+              <h3 class="sec-title">Other agents</h3>
+              <label class="flash-on"><input id="agent-started" type="checkbox" />Show agents started by other agents</label>
+              <p class="idle-hint">Off, only agents you started get keys. Left out: Claude Code sessions run by a script, the Agent SDK or another agent; Codex threads one agent made for another; and Grok bots' work for other bots and their automations (a bot counts only your own conversations with it). On, they show like any agent.</p>
+            </section>
+            </div>
+            </div>
+          </div>
+        </dialog>
+        <button id="new" class="btn primary" type="button">New agent</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="deck-wrap" aria-label="Stream Deck">
+        <div id="deck" class="deck"></div>
+        <div id="tabs" class="tabs" role="tablist" hidden></div>
+        <p class="hint">Drag a Clawd onto another key to move him. Click one to see him and change his look.</p>
+      </section>
+      <aside id="panel" class="panel" aria-live="polite"></aside>
+    </main>
+
+    <dialog id="newDialog">
+      <form method="dialog" id="newForm">
+        <h2>New agent</h2>
+        <p>Starts a Claude Code session in the Claude app, in this folder. He gets the next free key.</p>
+        <div class="row">
+          <input id="folder" list="recent" placeholder="/path/to/project" autocomplete="off" aria-label="Folder" />
+          <button id="choose" class="btn" type="button">Choose…</button>
+        </div>
+        <datalist id="recent"></datalist>
+        <div id="newError" class="error" role="alert"></div>
+        <div class="end">
+          <button class="btn" value="cancel" type="button" id="cancelNew">Cancel</button>
+          <button class="btn primary" type="submit" id="startNew">Start</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

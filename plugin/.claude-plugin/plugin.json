@@ -1,0 +1,18 @@
+{
+  "name": "pixelings",
+  "description": "Tells Pixelings what every Claude Code session is doing (working, asking for permission or a question, your move, compacting) and how full its context is, so each one shows as its own little pixel character on your Stream Deck.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Invisionnaire"
+  },
+  "homepage": "https://github.com/Invisionnaire-LLC/Pixelings",
+  "repository": "https://github.com/Invisionnaire-LLC/Pixelings",
+  "license": "GPL-3.0-only",
+  "keywords": [
+    "stream deck",
+    "elgato",
+    "status",
+    "pixel art",
+    "pixelings"
+  ]
+}

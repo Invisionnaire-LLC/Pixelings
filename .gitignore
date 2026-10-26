@@ -1,0 +1,6 @@
+backups/
+.superpowers/
+host/deck/node_modules/
+host/deck/dist/
+host/deck/build/
+docs/plan.md
