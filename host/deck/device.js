@@ -13,7 +13,7 @@ const FRAME_MS = 110
 const RETRY_MS = 2000
 const PRESS_MS = 300
 
-async function run(deck, hub, log) {
+async function run(deck, hub, log, stopped) {
   const keys = deck.CONTROLS.filter(c => c.type === 'button' && c.feedbackType === 'lcd')
   let page = 0
   let slots = []
@@ -47,6 +47,7 @@ async function run(deck, hub, log) {
     }
     const timer = setInterval(async () => {
       if (busy) return
+      if (stopped()) return stop()
       busy = true
       try {
         const now = Date.now()
@@ -76,42 +77,49 @@ async function run(deck, hub, log) {
   })
 }
 
-// Keeps a Stream Deck driven until stop(); stop() also hands the deck back
-// showing the Elgato logo.
-export function startDeck(hub, log = console.log) {
-  let current = null
+// Keeps a Stream Deck driven until stop(), which resolves once the deck is
+// handed back showing the Elgato logo (for quitting, or another mode).
+export function startDeck(hub, log = console.log, { list = listStreamDecks, open = openStreamDeck } = {}) {
   let stopped = false
+  let wake = () => {}
 
-  ;(async () => {
+  const loop = (async () => {
     while (!stopped) {
+      let current = null
       try {
-        const [found] = await listStreamDecks()
+        const [found] = await list()
         if (found && !stopped) {
-          current = await openStreamDeck(found.path)
+          current = await open(found.path)
           log(`${current.PRODUCT_NAME} connected`)
           hub.setDeck(true, current.PRODUCT_NAME)
-          await run(current, hub, log)
-          await current.close().catch(() => {})
-          current = null
-          hub.setDeck(false)
+          await run(current, hub, log, () => stopped)
+          // Its last frame is drawn: nothing draws over the logo.
+          if (stopped) await current.resetToLogo().catch(() => {})
         }
       } catch (e) {
-        if (current) await current.close().catch(() => {})
-        current = null
-        hub.setDeck(false)
         log(`waiting for a Stream Deck (${e.message})`)
       }
-      await new Promise(r => setTimeout(r, RETRY_MS))
+      if (current) {
+        await current.close().catch(() => {})
+        hub.setDeck(false)
+      }
+      if (!stopped) {
+        await new Promise(r => {
+          const timer = setTimeout(r, RETRY_MS)
+          wake = () => {
+            clearTimeout(timer)
+            r()
+          }
+        })
+      }
     }
   })()
 
   return {
     async stop() {
       stopped = true
-      if (current) {
-        await current.resetToLogo().catch(() => {})
-        await current.close().catch(() => {})
-      }
+      wake()
+      await loop
     },
   }
 }

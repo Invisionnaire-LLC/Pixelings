@@ -178,3 +178,22 @@ test('a session a script, the SDK or another agent started is marked as such', (
   for (const kind of ['bg', 'sdk', 'subagent', 'worker']) assert.equal(agentOf(session({ kind }), null, NOW).byAgent, true, kind)
   assert.equal(agentOf(session(), null, NOW).byAgent, false, 'no kind: yours')
 })
+
+test("a session with Claude Code's default name is named by its transcript's title", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deck-'))
+  const sessions = path.join(dir, 'sessions')
+  fs.mkdirSync(sessions)
+  const write = name =>
+    fs.writeFileSync(
+      path.join(sessions, `${process.pid}.json`),
+      JSON.stringify(session({ pid: process.pid, sessionId: 'vs-1', name, cwd: '/x/sciroadsV2', entrypoint: 'claude-vscode' })),
+    )
+  const titles = { titleFor: sid => (sid === 'vs-1' ? 'Feature explorer' : undefined) }
+  write('sciroadsv2-b5')
+  assert.equal(readAgents(Date.now(), sessions, dir, null, titles)[0].title, 'Feature explorer')
+  write('Named by you')
+  assert.equal(readAgents(Date.now(), sessions, dir, null, titles)[0].title, 'Named by you', 'a real name stays')
+  write('sciroadsv2-b5')
+  assert.equal(readAgents(Date.now(), sessions, dir, null, { titleFor: () => undefined })[0].title, 'sciroadsv2-b5', 'no title yet')
+  fs.rmSync(dir, { recursive: true })
+})

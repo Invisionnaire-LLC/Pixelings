@@ -27,6 +27,8 @@ export const SPECIES = {
     head: ['..XXXXXXX..', '..XXXXXXX..', '..XXXXXXX..'],
     torso: ['..XXXXXXX..', '..XXXXXXX..', '..XXXXXXX..'],
     legs: ['..X.X.X.X..', '..X...X....'],
+    // Mid-stride, as he walks round the farm.
+    stride: ['..X.X.X.X..', '....X...X..'],
     eye: [32, 32, 31],
   },
 }
@@ -192,8 +194,8 @@ const WEAR = {
 
 // Clawd in `look` (see wardrobe.js) with his body's top-left at x, y (the
 // hat above it). `pose`: eyes ('open' | 'down' | 'closed'), lookDx, armDy
-// [left, right], alpha.
-function clawd(key, x, y0, look, now, { eyes = 'open', lookDx = 0, armDy = [0, 0], alpha = 1, solid = null, atLaptop = false } = {}) {
+// [left, right], alpha, stride (his legs mid-step).
+function clawd(key, x, y0, look, now, { eyes = 'open', lookDx = 0, armDy = [0, 0], alpha = 1, solid = null, atLaptop = false, stride = false } = {}) {
   // A Codex dot stands where Clawd's feet would; no arms to wave, so a
   // waving or tapping pose is a little hop.
   if (look.species === 'codex') {
@@ -227,7 +229,7 @@ function clawd(key, x, y0, look, now, { eyes = 'open', lookDx = 0, armDy = [0, 0
   key.sprite(kind.torso, parts, x, y + 3 * U, alpha)
   key.rect(x, y + 3 * U + armDy[0], 2 * U, U, body, alpha)
   key.rect(x + 9 * U, y + 3 * U + armDy[1], 2 * U, U, body, alpha)
-  key.sprite(kind.legs, parts, x, y + 6 * U, alpha)
+  key.sprite(stride ? (kind.stride ?? kind.legs) : kind.legs, parts, x, y + 6 * U, alpha)
   if (wear) wear(key, x, y, wearColor, alpha)
 }
 
@@ -325,12 +327,12 @@ function flame(key, bx, by, size, t, i, alpha) {
 // Smoke, flames and embers for `level` at `where`; while compacting
 // (`dousedAgo` since it began) the flames die down and sink and steam
 // rises, as when Clawd puts his laptop out.
-function fire(key, level, t, where, dousedAgo = null) {
+function fire(key, level, t, where, dousedAgo = null, glow = true) {
   if (level <= 0) return
   const spot = BURN[where]
   const doused = dousedAgo !== null
 
-  if (level >= 4 && !doused) {
+  if (level >= 4 && !doused && glow) {
     const flicker = [0.6, 1, 0.7, 0.95][Math.floor(loop(t, 700) * 4)]
     key.rect(0, 14, SIZE, 40, [255, 140, 30], 0.07 * flicker)
   }
@@ -446,21 +448,16 @@ function flashOver(key, { style, color, strength, size, speed }, now) {
   }
 }
 
-function agentKey(agent, now, flash) {
-  // His kind follows the tool his session runs in.
-  const species = agent.tool === 'codex' || agent.tool === 'grokbot' ? agent.tool : (agent.look?.species ?? 'clawd')
-  const me = { ...CLASSIC, ...agent.look, species }
-  // His own clock: nobody blinks, taps or hops in step.
-  const t = now + (me.phase ?? 0)
-  const key = new Key([0, 0, 0])
-  scene(key, me, t)
-  // A slow pulse when he asks, so it reads from across the desk.
-  const pulse = 0.5 + 0.5 * Math.sin((now / 1200) * 2 * Math.PI)
-  if (agent.kind === 'ask') key.rect(0, 0, SIZE, SIZE, [190, 25, 25], 0.2 + 0.3 * pulse)
-  if (agent.kind === 'compacting') key.rect(0, 0, SIZE, SIZE, [20, 40, 130], 0.4)
-  if (typeof agent.pct === 'number') contextBar(key, agent.pct, now)
-  const x = Math.round((SIZE - 11 * U) / 2)
-  const y = 22
+// He as his state has him, his body's top-left at FIGURE_X, FIGURE_Y: at
+// his laptop, waving, waiting, compacting or idle, then his smoke and fire.
+// `roam` poses an idle one out in the farm (walk, sleep or tend); `glow`
+// is the whole key's orange when he is ablaze.
+const STEP_MS = 180
+export const FIGURE_X = Math.round((SIZE - 11 * U) / 2)
+export const FIGURE_Y = 22
+function figure(key, agent, me, t, now, { roam = null, glow = true } = {}) {
+  const x = FIGURE_X
+  const y = FIGURE_Y
   const blink = t % me.blinkMs < 160
   const glance = (t % 7000 < 1200 ? -2 : 0) + (t % 7000 >= 3500 && t % 7000 < 4700 ? 2 : 0)
   switch (agent.kind) {
@@ -499,6 +496,22 @@ function agentKey(agent, now, flash) {
       outlined(key, x, y, me, t, { eyes: 'closed', armDy: [-U, -U] })
       break
     default: {
+      // Out in the farm: walking (a step every STEP_MS, a hop for those
+      // without legs), asleep, or busy with his hands.
+      if (roam?.walk) {
+        const step = Math.floor(t / STEP_MS) % 2
+        outlined(key, x, y - step, me, t, { eyes: blink ? 'closed' : 'open', stride: Boolean(step), armDy: step ? [-1, 1] : [1, -1] })
+        break
+      }
+      if (roam?.sleep) {
+        outlined(key, x, y + 1, me, t, { eyes: 'closed', armDy: [1, 1] })
+        break
+      }
+      if (roam?.tend) {
+        const tap = Math.floor(t / (me.tapMs * 2)) % 2
+        outlined(key, x, y, me, t, { eyes: 'down', armDy: tap ? [-U, 0] : [0, -U] })
+        break
+      }
       const pose = { eyes: blink ? 'closed' : 'open' }
       let dx = 0
       let dy = 0
@@ -516,8 +529,28 @@ function agentKey(agent, now, flash) {
   // The laptop smokes, then burns, as his context fills (round his feet
   // when he is not at it); compacting puts it out.
   const level = heat(agent.pct)
-  if (agent.kind === 'compacting') fire(key, Math.max(level, 1), t, 'feet', Math.max(0, now - (agent.since ?? now)))
-  else fire(key, level, t, agent.kind === 'working' ? 'laptop' : 'feet')
+  if (agent.kind === 'compacting') fire(key, Math.max(level, 1), t, 'feet', Math.max(0, now - (agent.since ?? now)), glow)
+  else fire(key, level, t, agent.kind === 'working' ? 'laptop' : 'feet', null, glow)
+}
+
+// Who he is on his key, by the tool his session runs in.
+function lookOf(agent) {
+  const species = agent.tool === 'codex' || agent.tool === 'grokbot' ? agent.tool : (agent.look?.species ?? 'clawd')
+  return { ...CLASSIC, ...agent.look, species }
+}
+
+function agentKey(agent, now, flash) {
+  const me = lookOf(agent)
+  // His own clock: nobody blinks, taps or hops in step.
+  const t = now + (me.phase ?? 0)
+  const key = new Key([0, 0, 0])
+  scene(key, me, t)
+  // A slow pulse when he asks, so it reads from across the desk.
+  const pulse = 0.5 + 0.5 * Math.sin((now / 1200) * 2 * Math.PI)
+  if (agent.kind === 'ask') key.rect(0, 0, SIZE, SIZE, [190, 25, 25], 0.2 + 0.3 * pulse)
+  if (agent.kind === 'compacting') key.rect(0, 0, SIZE, SIZE, [20, 40, 130], 0.4)
+  if (typeof agent.pct === 'number') contextBar(key, agent.pct, now)
+  figure(key, agent, me, t, now)
 
   if (TICKING.has(agent.kind)) tickingStrip(key, keyLabel(agent), t)
   else nameStrip(key, keyLabel(agent))
@@ -606,6 +639,16 @@ export function renderPortrait(look, now = 0, bg = null, outline = !bg) {
   const pose = { eyes: t % me.blinkMs < 160 ? 'closed' : 'open' }
   if (outline) outlined(key, Math.round((SIZE - 11 * U) / 2), 30, me, t, pose)
   else clawd(key, Math.round((SIZE - 11 * U) / 2), 30, me, t, pose)
+  return key.px
+}
+
+// Just him for the farm (farm.js), on plain `bg` and nothing else of his
+// key: his scene, name, frame and flashes are left out. `roam` as for
+// figure.
+export function renderFigure(agent, now, bg, roam = null) {
+  const key = new Key(bg)
+  const me = lookOf(agent)
+  figure(key, agent, me, now + (me.phase ?? 0), now, { roam, glow: false })
   return key.px
 }
 

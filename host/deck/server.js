@@ -2,8 +2,9 @@
 // of the deck script so the deck and the page share one state (hub.js).
 //
 //   GET  /                   the page (public/)
+//   GET  /farm               the farm, for its own screen (public/farm.html)
 //   GET  /lib/<file>.js      render.js, wardrobe.js, layout.js, scenes.js, dots.js,
-//                            grokbots.js
+//                            grokbots.js, farm.js, mode.js
 //   GET  /api/state          the state, once
 //   GET  /api/events         the state, again on every change (SSE)
 //   POST /api/move           { sid, seat }
@@ -13,6 +14,13 @@
 //   POST /api/hide-idle      { minutes }       1, 60, 120, 180, 240, 300, or "never"
 //   POST /api/agent-started  { on }            agents started by other agents get keys
 //   POST /api/open-at-login  { on }            start Pixelings when you log in
+//   POST /api/output         { output, on }    a display ("streamdeck", "external", "desktop") on or off
+//   POST /api/farm-window    { size?, onTop?, stripHeight?, stripEdge? }  the farm's window
+//   POST /api/farm-display   { display }       "auto" or a screen's id
+//   POST /api/farm-scene     { scene }         "farm", "office" or "mall"
+//   POST /api/desktop-display { display }      "auto" or a screen's id
+//   POST /api/desktop-on-top { on }            the Desktop over every window, or behind
+//   POST /api/desktop-context { on }           the Desktop's context bars shown or not
 //   POST /api/open           { sid }
 //   POST /api/new            { folder }
 //   POST /api/choose-folder  {}                → { folder }
@@ -36,6 +44,8 @@ const MAX_BODY = 16 * 1024
 const STATIC = {
   '/': ['public/index.html', 'text/html; charset=utf-8'],
   '/app.js': ['public/app.js', 'text/javascript; charset=utf-8'],
+  '/farm': ['public/farm.html', 'text/html; charset=utf-8'],
+  '/farm.js': ['public/farm.js', 'text/javascript; charset=utf-8'],
   '/manifest.webmanifest': ['public/manifest.webmanifest', 'application/manifest+json'],
   '/lib/render.js': ['render.js', 'text/javascript; charset=utf-8'],
   '/lib/wardrobe.js': ['wardrobe.js', 'text/javascript; charset=utf-8'],
@@ -43,6 +53,8 @@ const STATIC = {
   '/lib/scenes.js': ['scenes.js', 'text/javascript; charset=utf-8'],
   '/lib/dots.js': ['dots.js', 'text/javascript; charset=utf-8'],
   '/lib/grokbots.js': ['grokbots.js', 'text/javascript; charset=utf-8'],
+  '/lib/farm.js': ['farm.js', 'text/javascript; charset=utf-8'],
+  '/lib/mode.js': ['mode.js', 'text/javascript; charset=utf-8'],
 }
 
 let icon = null
@@ -147,6 +159,20 @@ export function handler(hub, port = PORT) {
         return done(hub.setAgentStarted(body.on))
       case '/api/open-at-login':
         return done(hub.setOpenAtLogin(body.on))
+      case '/api/output':
+        return done(hub.setOutput(body.output, body.on))
+      case '/api/farm-window':
+        return done(hub.setFarmWindow(body))
+      case '/api/farm-display':
+        return done(hub.setFarmDisplay(body.display))
+      case '/api/farm-scene':
+        return done(hub.setFarmScene(body.scene))
+      case '/api/desktop-display':
+        return done(hub.setDesktopDisplay(body.display))
+      case '/api/desktop-on-top':
+        return done(hub.setDesktopOnTop(body.on))
+      case '/api/desktop-context':
+        return done(hub.setDesktopContext(body.on))
       case '/api/open':
         return done(hub.open(body.sid))
       case '/api/new':

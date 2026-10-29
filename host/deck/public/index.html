@@ -186,6 +186,108 @@
         border-color: var(--line);
         color: var(--text);
       }
+      .settings-nav button.sub {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px 6px 22px;
+        font-size: 13px;
+      }
+      .mini-dot {
+        flex: none;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--line);
+      }
+      .mini-dot.on {
+        background: var(--accent);
+      }
+      .outs {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .out-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface-2);
+      }
+      .out-row button {
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--text);
+        font: inherit;
+        font-size: 14px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .out-row button:hover {
+        text-decoration: underline;
+      }
+      .out-row .out-text {
+        flex: 1;
+        color: var(--muted);
+        font-size: 13px;
+        text-align: right;
+      }
+      .switch {
+        appearance: none;
+        -webkit-appearance: none;
+        position: relative;
+        flex: none;
+        width: 34px;
+        height: 20px;
+        margin: 0;
+        border-radius: 10px;
+        background: var(--line);
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      .switch::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 0.15s;
+      }
+      .switch:checked {
+        background: var(--accent);
+      }
+      .switch:checked::after {
+        transform: translateX(14px);
+      }
+      .switch:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .wide-range {
+        width: 100%;
+        accent-color: var(--accent);
+      }
+      /* Labelled like a section's own rows: a gap under each label. */
+      #farm-strip-opts {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 6px;
+      }
+      #farm-strip-opts .seg + .flash-label {
+        margin-top: 6px;
+      }
+      #farm-window-opts {
+        margin-top: 6px;
+      }
       .settings-main {
         position: relative;
         flex: 1;
@@ -315,6 +417,13 @@
       .seg button[aria-checked='true'] {
         border-color: var(--accent);
         color: var(--text);
+      }
+      .seg button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .bright[hidden] {
+        display: none;
       }
       .swatches {
         display: flex;
@@ -755,6 +864,11 @@
             <nav class="settings-nav" role="tablist" aria-orientation="vertical" aria-labelledby="settings-title">
               <h2 id="settings-title">Settings</h2>
               <button type="button" role="tab" data-tab="general">General</button>
+              <button type="button" role="tab" data-tab="display">Display</button>
+              <button type="button" role="tab" data-tab="out-streamdeck" class="sub"><span class="mini-dot" data-dot="streamdeck"></span>Stream Deck</button>
+              <button type="button" role="tab" data-tab="out-external" class="sub"><span class="mini-dot" data-dot="external"></span>Scene</button>
+              <button type="button" role="tab" data-tab="out-desktop" class="sub"><span class="mini-dot" data-dot="desktop"></span>Desktop</button>
+              <button type="button" role="tab" data-tab="out-esp32" class="sub"><span class="mini-dot" data-dot="esp32"></span>ESP32 Board</button>
               <button type="button" role="tab" data-tab="flash">Flash</button>
               <button type="button" role="tab" data-tab="agents">Agents</button>
             </nav>
@@ -770,6 +884,91 @@
               <section class="setsec">
                 <h3 class="sec-title">About</h3>
                 <p id="app-version" class="idle-hint"></p>
+              </section>
+            </div>
+            <div class="settings-body" role="tabpanel" data-panel="display" hidden>
+              <h2 class="panel-title">Display</h2>
+              <section class="setsec">
+                <p class="idle-hint about">Turn on each place the Pixelings show, as many at once as you like. The menu bar and this window are always there, with a count and a "!" when an agent asks for you.</p>
+                <div id="outputs" class="outs"></div>
+              </section>
+            </div>
+            <div class="settings-body" role="tabpanel" data-panel="out-streamdeck" hidden>
+              <h2 class="panel-title">Stream Deck</h2>
+              <section class="setsec">
+                <p class="idle-hint about" data-about="streamdeck"></p>
+                <label class="flash-on"><input class="switch" type="checkbox" data-output="streamdeck" />Show the Pixelings on the Stream Deck</label>
+                <p class="idle-hint" data-status="streamdeck"></p>
+              </section>
+              <section class="setsec">
+                <h3 class="sec-title">Brightness</h3>
+                <input id="deck-brightness" class="wide-range" type="range" min="0" max="100" aria-label="Stream Deck brightness" />
+                <p class="idle-hint">How each key flashes when an agent needs you is under Flash.</p>
+              </section>
+            </div>
+            <div class="settings-body" role="tabpanel" data-panel="out-external" hidden>
+              <h2 class="panel-title">Scene</h2>
+              <section class="setsec">
+                <p class="idle-hint about" data-about="external"></p>
+                <label class="flash-on"><input class="switch" type="checkbox" data-output="external" />Show the farm, office or mall on a screen</label>
+                <p class="idle-hint" data-status="external"></p>
+              </section>
+              <section class="setsec">
+                <h3 class="sec-title">Screen</h3>
+                <div class="flash-label">Show it on</div>
+                <div id="farm-display" class="seg" role="radiogroup" aria-label="Show it on"></div>
+                <p id="farm-hint" class="idle-hint"></p>
+              </section>
+              <section class="setsec">
+                <h3 class="sec-title">Size</h3>
+                <div id="farm-size" class="seg" role="radiogroup" aria-label="Size"><button type="button" role="radio" data-value="full">Full Screen</button><button type="button" role="radio" data-value="window">Window</button><button type="button" role="radio" data-value="strip">Strip</button></div>
+                <p id="farm-size-hint" class="idle-hint"></p>
+                <div id="farm-window-opts">
+                  <label class="flash-on"><input id="farm-on-top" class="switch" type="checkbox" />Keep it on top of other windows</label>
+                </div>
+                <div id="farm-strip-opts">
+                  <div class="flash-label">Height</div>
+                  <div id="strip-height" class="seg" role="radiogroup" aria-label="Height"><button type="button" role="radio" data-value="small">Small</button><button type="button" role="radio" data-value="medium">Medium</button><button type="button" role="radio" data-value="large">Large</button></div>
+                  <div class="flash-label">Along the</div>
+                  <div id="strip-edge" class="seg" role="radiogroup" aria-label="Along the"><button type="button" role="radio" data-value="bottom">Bottom</button><button type="button" role="radio" data-value="top">Top</button></div>
+                </div>
+              </section>
+              <section class="setsec">
+                <h3 class="sec-title">Environment</h3>
+                <div class="flash-label">Everyone lives in</div>
+                <div id="farm-scene" class="seg" role="radiogroup" aria-label="Everyone lives in"><button type="button" role="radio" data-value="farm">Farm</button><button type="button" role="radio" data-value="office">Office</button><button type="button" role="radio" data-value="mall">Mall</button></div>
+              </section>
+            </div>
+            <div class="settings-body" role="tabpanel" data-panel="out-desktop" hidden>
+              <h2 class="panel-title">Desktop</h2>
+              <section class="setsec">
+                <p class="idle-hint about" data-about="desktop"></p>
+                <label class="flash-on"><input class="switch" type="checkbox" data-output="desktop" />Show the Pixelings on your desktop</label>
+                <p class="idle-hint" data-status="desktop"></p>
+              </section>
+              <section class="setsec">
+                <h3 class="sec-title">Screen</h3>
+                <div class="flash-label">Show them on</div>
+                <div id="desktop-display" class="seg" role="radiogroup" aria-label="Show them on"></div>
+                <p id="desktop-hint" class="idle-hint"></p>
+              </section>
+              <section class="setsec">
+                <h3 class="sec-title">Your windows</h3>
+                <label class="flash-on"><input id="desktop-on-top" class="switch" type="checkbox" />Keep them on top of other windows</label>
+                <p id="desktop-on-top-hint" class="idle-hint"></p>
+              </section>
+              <section class="setsec">
+                <h3 class="sec-title">Context</h3>
+                <label class="flash-on"><input id="desktop-context" class="switch" type="checkbox" />Show how full each one's context is</label>
+                <p class="idle-hint">A bar under his feet, as on his key and in the Scene.</p>
+              </section>
+            </div>
+            <div class="settings-body" role="tabpanel" data-panel="out-esp32" hidden>
+              <h2 class="panel-title">ESP32 Board</h2>
+              <section class="setsec">
+                <p class="idle-hint about" data-about="esp32"></p>
+                <label class="flash-on"><input class="switch" type="checkbox" data-output="esp32" disabled />Show the Pixelings on an ESP32 board</label>
+                <p class="idle-hint" data-status="esp32"></p>
               </section>
             </div>
             <div class="settings-body" role="tabpanel" data-panel="flash" hidden>

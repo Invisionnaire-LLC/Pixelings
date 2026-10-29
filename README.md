@@ -64,17 +64,32 @@ and keeps them.
 ![Pixelings in the menu bar](docs/preview/menu-bar.png)
 
 The menu bar icon shows a count with a "!" when an agent asks for you. Its
-menu lists every agent, opens the window, starts a new agent, and sets the
-brightness, flashes and idle time.
+menu opens the window or its Settings (⌘,).
 
 ![The Pixelings window](docs/preview/pixelings-window.png)
+
+**Where they show.** **Settings → Display** lists each place the Pixelings
+can show, each with a switch, on together or one at a time: the **Stream
+Deck**'s keys; a **Scene**, a farm they live in (an office or a mall if you
+like) on a screen you pick (a Corsair Xeneon Edge is found by itself), that
+fills the screen, sits in a window you move and size, or runs as a strip
+along its top or bottom; and the **Desktop**, where they walk along the
+bottom of a screen (your main one, or one you pick) just above the Dock or
+the taskbar, with nothing behind them. On the Desktop a click on one opens
+his session, and a click anywhere else goes to the window under them.
+They stay behind the window you are using, and one asking you something
+comes to the front until you answer it (or keep them all on top). The
+ESP32 Board is coming. The menu bar and the window are always there.
 
 The window shows the deck live, plugged in or not. Drag a character to move
 him (or swap him with another), click one to open his session or change his
 look, start a new agent, or open **Settings**.
 
-A key press opens that session in its own app (Claude, VS Code, T3 Code,
-Codex or Grok Bot), or its folder for a session in a terminal.
+A key press opens that session in its own app (Claude, VS Code, Cursor,
+T3 Code, Codex or Grok Bot), or its own tab for a session in a terminal
+(Ghostty, Terminal or iTerm2, inside tmux too; on a Mac). The first press
+in each terminal asks you to let Pixelings control it; without that, the
+terminal still comes to the front.
 
 ### How it knows
 

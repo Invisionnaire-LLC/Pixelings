@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { fitWords, heatColor, keyLabel, nameLines, renderKey, SIZE } from './render.js'
+import { fitWords, heatColor, keyLabel, nameLines, renderFigure, renderKey, SIZE } from './render.js'
 
 const agent = (kind, over = {}) => ({ sid: 's', kind, title: 'Deck keys', folder: 'Pixelings', since: 0, ...over })
 const at = (px, x, y) => [...px.subarray((y * SIZE + x) * 3, (y * SIZE + x) * 3 + 3)]
@@ -257,4 +257,24 @@ test("a flash's options: a border's size, the whole key's strength, and its spee
   // Fast is off at 300 ms into its beat; normal is still on.
   assert.notDeepEqual(at(key(300, { speed: 'fast' }), 36, 36), at(key(300, { speed: 'normal' }), 36, 36))
   assert.deepEqual(at(key(300, { speed: 'fast' }), 36, 36), plain.length ? at(renderKey(question, 300, { flash: {} }), 36, 36) : null)
+})
+
+test('the farm gets just him: no scene, name or frame, on the colour asked for', () => {
+  const bg = [255, 0, 255]
+  for (const kind of ['ask', 'done', 'working', 'compacting', 'idle']) {
+    const px = renderFigure(agent(kind), 0, bg)
+    assert.equal(px.length, SIZE * SIZE * 3)
+    // His name strip and the asking frame would cover these.
+    assert.deepEqual(at(px, 1, 70), bg, kind)
+    assert.deepEqual(at(px, 36, 60), bg, kind)
+    assert.deepEqual(at(px, 1, 1), bg, kind)
+  }
+})
+
+test('out in the farm an idle one walks, sleeps or tends, each its own pose', () => {
+  const idle = agent('idle')
+  const poses = [null, { walk: true }, { sleep: true }, { tend: true }].map(roam => renderFigure(idle, 180, [0, 0, 0], roam).join())
+  assert.equal(new Set(poses).size, poses.length)
+  // A busy one keeps his key's pose whatever the farm asks.
+  assert.deepEqual(renderFigure(agent('working'), 0, [0, 0, 0], { walk: true }), renderFigure(agent('working'), 0, [0, 0, 0]))
 })

@@ -17,6 +17,8 @@ import {
   STYLE_OPTION,
 } from '/lib/render.js'
 import { DOT_NAMES, DOTS } from '/lib/dots.js'
+import { pickFarmDisplay } from '/lib/farm.js'
+import { BUILT_OUTPUTS, OUTPUT_ABOUT, OUTPUT_NAMES, OUTPUTS, outputStatus, pickDesktopDisplay, showingOn } from '/lib/mode.js'
 import { SCENE_NAMES, SCENES } from '/lib/scenes.js'
 import { ACCESSORIES, BLINK_MS, BODIES, BODY_NAMES, HABITS, HATS, TAP_MS } from '/lib/wardrobe.js'
 
@@ -443,17 +445,22 @@ function renderBar() {
   const n = state.agents.length
   const asking = state.agents.filter(a => a.kind === 'ask').length
   const who = `${n} agent${n === 1 ? '' : 's'}${asking ? `, ${asking} asking` : ''}`
-  $('status').textContent = state.deck.connected ? `${state.deck.product} · ${who}` : `No Stream Deck plugged in · ${who}`
-  $('dot').classList.toggle('on', Boolean(state.deck.connected))
-  const b = $('brightness')
-  if (document.activeElement !== b) b.value = state.brightness
+  const shown = showingOn(state)
+  $('status').textContent = `${shown.text} · ${who}`
+  $('dot').classList.toggle('on', shown.live)
+  // The deck's brightness, while the Stream Deck is on.
+  $('brightness').closest('.bright').hidden = !state.outputs?.streamdeck
+  for (const b of [$('brightness'), $('deck-brightness')]) if (document.activeElement !== b) b.value = state.brightness
+  renderOutputs()
   renderFlash()
   renderHideIdle()
   renderGeneral()
+  renderFarm()
+  renderDesktop()
 }
 
 let brightTimer
-$('brightness').addEventListener('input', e => {
+for (const id of ['brightness', 'deck-brightness']) $(id).addEventListener('input', e => {
   clearTimeout(brightTimer)
   brightTimer = setTimeout(() => post('/api/brightness', { value: Number(e.target.value) }), 120)
 })
@@ -560,6 +567,118 @@ function renderHideIdle() {
 
 $('agent-started').addEventListener('change', e => post('/api/agent-started', { on: e.target.checked }))
 
+// ---- Display: each place the Pixelings show, on or off ----
+
+const showTabOf = output => () => showTab(`out-${output}`)
+
+$('outputs').replaceChildren(
+  ...OUTPUTS.map(output => {
+    const sw = el('input', { type: 'checkbox', className: 'switch', disabled: !BUILT_OUTPUTS.includes(output) })
+    sw.dataset.output = output
+    sw.setAttribute('aria-label', OUTPUT_NAMES[output])
+    const text = el('span', { className: 'out-text' })
+    text.dataset.status = output
+    return el('div', { className: 'out-row' }, el('button', { type: 'button', textContent: OUTPUT_NAMES[output], onclick: showTabOf(output) }), text, sw)
+  }),
+)
+for (const sw of document.querySelectorAll('input[data-output]')) {
+  sw.addEventListener('change', () => post('/api/output', { output: sw.dataset.output, on: sw.checked }))
+}
+for (const p of document.querySelectorAll('[data-about]')) p.textContent = OUTPUT_ABOUT[p.dataset.about]
+
+// What each display says it is doing, everywhere it is shown.
+const OFF_TEXT = {
+  streamdeck: 'Off: the Stream Deck shows the Elgato logo, free for Elgato’s app.',
+  external: 'Off: no farm, office or mall on any screen.',
+  desktop: 'Off: nobody on your desktop.',
+}
+
+function renderOutputs() {
+  for (const output of OUTPUTS) {
+    const st = outputStatus(state, output)
+    for (const sw of document.querySelectorAll(`input[data-output="${output}"]`)) sw.checked = st.on
+    for (const t of document.querySelectorAll(`[data-status="${output}"]`)) {
+      t.textContent = t.classList.contains('out-text') ? st.text : st.on ? `${st.text}.` : (OFF_TEXT[output] ?? 'Coming soon.')
+    }
+    for (const d of document.querySelectorAll(`[data-dot="${output}"]`)) d.classList.toggle('on', st.on)
+  }
+}
+
+// ---- Scene: which screen, and where everyone lives ----
+
+for (const b of $('farm-scene').children) b.addEventListener('click', () => post('/api/farm-scene', { scene: b.dataset.value }))
+for (const b of $('farm-size').children) b.addEventListener('click', () => post('/api/farm-window', { size: b.dataset.value }))
+for (const b of $('strip-height').children) b.addEventListener('click', () => post('/api/farm-window', { stripHeight: b.dataset.value }))
+for (const b of $('strip-edge').children) b.addEventListener('click', () => post('/api/farm-window', { stripEdge: b.dataset.value }))
+$('farm-on-top').addEventListener('change', e => post('/api/farm-window', { onTop: e.target.checked }))
+
+const SIZE_HINTS = {
+  full: 'Fills the screen, over its menu bar, on every desktop. Windows you take there go behind it.',
+  window: 'A window you move and size like any other; it remembers where you leave it. Closing it turns the Scene off.',
+  strip: 'A band across the screen, over other windows, on every desktop. Small, Medium and Large draw the world one, two or three times bigger.',
+}
+
+// Picks the button whose value is `value` in a row of them.
+function check(box, value) {
+  for (const b of box.children) b.setAttribute('aria-checked', String(b.dataset.value === value))
+}
+
+// A row of the screens to pick from, Automatic first, kept as they are
+// until the screens change; `chosen` is checked.
+function screenChoices(box, auto, url, chosen) {
+  const choices = [{ value: 'auto', label: auto }, ...(state.displays ?? []).map(d => ({ value: d.id, label: d.name }))]
+  const want = choices.map(c => `${c.value}:${c.label}`).join('|')
+  if (box.dataset.choices !== want) {
+    box.dataset.choices = want
+    box.replaceChildren(
+      ...choices.map(c => {
+        const b = el('button', { type: 'button', textContent: c.label, onclick: () => post(url, { display: c.value }) })
+        b.setAttribute('role', 'radio')
+        b.dataset.value = String(c.value)
+        return b
+      }),
+    )
+  }
+  check(box, String(chosen ?? 'auto'))
+}
+
+function renderFarm() {
+  screenChoices($('farm-display'), 'Automatic', '/api/farm-display', state.farmDisplay)
+  check($('farm-scene'), state.farmScene ?? 'farm')
+  const win = state.farmWindow ?? { size: 'full', onTop: true, stripHeight: 'medium', stripEdge: 'bottom' }
+  check($('farm-size'), win.size)
+  check($('strip-height'), win.stripHeight)
+  check($('strip-edge'), win.stripEdge)
+  $('farm-on-top').checked = win.onTop
+  $('farm-size-hint').textContent = SIZE_HINTS[win.size]
+  $('farm-window-opts').hidden = win.size !== 'window'
+  $('farm-strip-opts').hidden = win.size !== 'strip'
+  const on = pickFarmDisplay(state.displays ?? [], state.farmDisplay ?? 'auto')
+  $('farm-hint').textContent = on
+    ? `Showing on ${on.name} (${on.width}×${on.height}).`
+    : state.farmDisplay === 'auto'
+      ? 'No Xeneon Edge or other long, short screen plugged in. Pick a screen to show it there.'
+      : 'That screen is not plugged in.'
+}
+
+// ---- Desktop: which screen they walk along, over your windows or not ----
+
+$('desktop-on-top').addEventListener('change', e => post('/api/desktop-on-top', { on: e.target.checked }))
+$('desktop-context').addEventListener('change', e => post('/api/desktop-context', { on: e.target.checked }))
+
+function renderDesktop() {
+  screenChoices($('desktop-display'), 'Main Screen', '/api/desktop-display', state.desktopDisplay)
+  const on = pickDesktopDisplay(state.displays ?? [], state.desktopDisplay ?? 'auto')
+  $('desktop-hint').textContent = on
+    ? `Along the bottom of ${on.name}, just above the Dock or the taskbar.`
+    : 'That screen is not plugged in.'
+  $('desktop-on-top').checked = Boolean(state.desktopOnTop)
+  $('desktop-on-top-hint').textContent = state.desktopOnTop
+    ? 'Over every window, all the time.'
+    : 'Behind the window you are using. One asking you something comes to the front until you answer him.'
+  $('desktop-context').checked = Boolean(state.desktopContext)
+}
+
 // ---- General: starting at login, and the version ----
 
 $('open-at-login').addEventListener('change', e => post('/api/open-at-login', { on: e.target.checked }))
@@ -586,6 +705,17 @@ for (const b of document.querySelectorAll('.settings-nav [data-tab]')) b.addEven
 showTab(settingsTab)
 
 $('settings-open').addEventListener('click', () => $('settings').showModal())
+// The menu bar's Settings… opens the window here, on #settings (or on a
+// tab of them: #settings/display).
+function settingsFromHash() {
+  const [page, tab] = location.hash.slice(1).split('/')
+  if (page !== 'settings') return
+  history.replaceState(null, '', location.pathname + location.search)
+  if (tab && document.querySelector(`.settings-nav [data-tab="${CSS.escape(tab)}"]`)) showTab(tab)
+  if (!$('settings').open) $('settings').showModal()
+}
+addEventListener('hashchange', settingsFromHash)
+settingsFromHash()
 $('settings-close').addEventListener('click', () => $('settings').close())
 // A click on the dimmed page around it closes it too.
 $('settings').addEventListener('click', e => {

@@ -2,16 +2,21 @@
 // their looks and seats, the deck's settings, whether a deck is plugged in,
 // and everything the page can do (move, restyle, open, start, brightness).
 // Emits 'change' when what the page shows changes, 'brightness' when that
-// does, 'login' when starting at login is turned on or off.
+// does, 'login' when starting at login is turned on or off, 'outputs' when
+// a display is turned on or off, 'farm' when the farm's screen or window
+// changes, 'desktop' when the Desktop's screen or layering does.
 import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
 
 import { readAgents as readLiveAgents } from './agents.js'
+import { SCENES } from './farm.js'
 import { castFor, CAST_FILE, loadCast, moveSeat, restyle, saveCast } from './cast.js'
 import { CodexSessions } from './codex.js'
 import { GrokBotSessions } from './grokbot.js'
+import { focuser, Hosts, TERMINALS } from './host.js'
+import { BUILT_OUTPUTS, FARM_SIZES, farmWindowFrom, outputsFrom, STRIP_EDGES, STRIP_HEIGHTS } from './mode.js'
 import { dirs } from './paths.js'
 import { DEFAULT_FLASHES, enabledFlashes, FLASH_COLORS, FLASH_EVENTS, FLASH_OPTIONS, FLASH_STYLES } from './render.js'
 
@@ -22,6 +27,10 @@ const LOCAL_ID = /^local_[A-Za-z0-9-]{1,64}$/
 const CODEX_ID = /^[0-9a-f-]{36}$/
 const GROKBOT_ID = /^[0-9a-f-]{36}$/
 const T3_ID = /^[0-9a-f-]{36}$/
+const VSCODE_ID = /^[0-9a-f-]{36}$/
+// How long VS Code is given to bring a folder's window to the front before
+// the Claude extension's link, which goes to the window in front, follows.
+export const VSCODE_FOCUS_MS = 700
 // The choices for how long an idle agent keeps his key, in minutes.
 export const IDLE_CHOICES = [1, 60, 120, 180, 240, 300, 'never']
 // A finished turn waits on you this long before it counts as idle (as in
@@ -30,21 +39,27 @@ const YOUR_MOVE_MS = 30 * 60 * 1000
 // "Never" for a Codex thread, which has no process to say it closed.
 const CODEX_NEVER_MS = 24 * 60 * 60 * 1000
 
+// The link scheme of each editor built on VS Code, by its host (host.js).
+const EDITORS = { vscode: 'vscode', 'vscode-insiders': 'vscode-insiders', cursor: 'cursor' }
+
 // VS Code's own link to a folder, on any system: vscode://file/C:/x or
-// vscode://file/Users/x. Every path segment is fully percent-encoded (only
-// the slashes and a drive's colon stay), so a folder name can never carry
-// characters a shell would act on.
-export function vscodeLink(folder) {
+// vscode://file/Users/x (cursor://file/… for Cursor, by `scheme`). Every
+// path segment is fully percent-encoded (only the slashes and a drive's
+// colon stay), so a folder name can never carry characters a shell would
+// act on.
+export function vscodeLink(folder, scheme = 'vscode') {
   const p = folder.replace(/\\/g, '/')
   const encoded = p
     .split('/')
     .map((seg, i) => (i === 0 && /^[A-Za-z]:$/.test(seg) ? seg : encodeURIComponent(seg)))
     .join('/')
-  return `vscode://file${p.startsWith('/') ? '' : '/'}${encoded}`
+  return `${scheme}://file${p.startsWith('/') ? '' : '/'}${encoded}`
 }
 
 // What pressing a key (or Open on the page) opens for `agent`: a link
-// ({ url }) or a folder ({ path }), or null.
+// ({ url }), a folder or app ({ path }), a terminal tab ({ focus }, with
+// the app as its `fallback`), or null. A target with `first` has that
+// opened first, VSCODE_FOCUS_MS before it.
 export function openTarget(agent) {
   // A Codex thread in the Codex app (inside ChatGPT): its own link.
   if (agent.app === 'codex-app' && CODEX_ID.test(agent.codexThread ?? '')) return { url: `codex://threads/${agent.codexThread}` }
@@ -57,8 +72,28 @@ export function openTarget(agent) {
   if (agent.app === 't3-code' && T3_ID.test(agent.t3Env ?? '') && T3_ID.test(agent.t3Thread ?? '')) {
     return { url: `t3code://threads/${agent.t3Env}/${agent.t3Thread}` }
   }
-  if (agent.app === 'claude-vscode' && agent.cwd) return { url: vscodeLink(agent.cwd) }
-  // A terminal session: its folder is the best we know.
+  const host = agent.host
+  if (agent.app === 'claude-vscode' && agent.cwd) {
+    // Cursor runs the same extension, and opens by its own links.
+    const scheme = EDITORS[host?.app] ?? 'vscode'
+    // The Claude extension's own link shows the session's tab, but in the
+    // window VS Code last had in front: its folder's window is put there first.
+    if (VSCODE_ID.test(agent.sid ?? '')) {
+      return { url: `${scheme}://anthropic.claude-code/open?session=${agent.sid}`, first: { url: vscodeLink(agent.cwd, scheme) } }
+    }
+    return { url: vscodeLink(agent.cwd, scheme) }
+  }
+  // In an editor's own terminal, or Codex in its extension: the folder's
+  // window in that editor.
+  if (EDITORS[host?.app] && agent.cwd) return { url: vscodeLink(agent.cwd, EDITORS[host.app]) }
+  // In a terminal: its tab, or the terminal at least.
+  if (TERMINALS.has(host?.app)) {
+    const { app, bundle, tty, tmux } = host
+    return { focus: { app, bundle, tty, tmux, cwd: agent.cwd, title: agent.title }, fallback: { path: bundle } }
+  }
+  // In any other app: that app.
+  if (host?.bundle) return { path: host.bundle }
+  // Nowhere known: its folder is the best we know.
   if (agent.cwd) return { path: agent.cwd }
   return null
 }
@@ -110,6 +145,10 @@ export class Hub extends EventEmitter {
     rand = Math.random,
     // The app's own folder picker; the Mac's (through osascript) otherwise.
     pickFolder = null,
+    // Finds where each agent runs (host.js); none when null.
+    hosts = new Hosts(),
+    // Shows a terminal tab, or says it can't; host.js's by default.
+    focus,
   } = {}) {
     super()
     this.readAgents = readAgents
@@ -125,6 +164,8 @@ export class Hub extends EventEmitter {
     this.settingsFile = settingsFile
     this.exec = exec
     this.opener = opener ?? systemOpener(exec)
+    this.hosts = hosts
+    this.focus = focus ?? focuser(exec)
     this.rand = rand
     this.pickFolder = pickFolder
     this.cast = loadCast(castFile)
@@ -134,6 +175,8 @@ export class Hub extends EventEmitter {
     // whether it can start at login (only the installed app can).
     this.appInfo = { version: null, loginAvailable: false }
     this.deck = { connected: false, product: null }
+    // The screens plugged in (main.js says): { id, name, width, height, primary }.
+    this.displays = []
     this.shown = ''
   }
 
@@ -185,6 +228,11 @@ export class Hub extends EventEmitter {
       this.cast = next.cast
       saveCast(this.cast, this.castFile)
     }
+    try {
+      this.hosts?.attach(agents, now)
+    } catch {
+      // Hosts unknown for now: presses open folders, as before.
+    }
     for (const a of agents) {
       // His kind (Clawd, a Codex dot, or a Grok bot in its own shape and
       // colour) goes with the look, for the page.
@@ -213,6 +261,14 @@ export class Hub extends EventEmitter {
       hideIdle: this.hideIdle(),
       agentStarted: this.agentStarted(),
       openAtLogin: this.openAtLogin(),
+      outputs: this.outputs(),
+      farmWindow: this.farmWindow(),
+      farmDisplay: this.farmDisplay(),
+      farmScene: this.farmScene(),
+      desktopDisplay: this.desktopDisplay(),
+      desktopOnTop: this.desktopOnTop(),
+      desktopContext: this.desktopContext(),
+      displays: this.displays,
       app: this.appInfo,
       agents: this.agents.map(a => ({
         sid: a.sid,
@@ -372,11 +428,145 @@ export class Hub extends EventEmitter {
     return true
   }
 
+  // Where the Pixelings show (mode.js): each display on or off by itself,
+  // the Stream Deck alone until changed.
+  outputs() {
+    return outputsFrom(this.settings)
+  }
+
+  setOutput(output, on) {
+    if (!BUILT_OUTPUTS.includes(output) || typeof on !== 'boolean') return false
+    this.settings.outputs = { ...this.outputs(), [output]: on }
+    delete this.settings.mode
+    this.saveSettings()
+    this.emit('outputs', this.outputs())
+    this.changed()
+    return true
+  }
+
+  // How the farm's window sits on its screen (mode.js): full screen, a
+  // window (kept on top or not) or a strip (its height and edge).
+  farmWindow() {
+    return farmWindowFrom(this.settings)
+  }
+
+  setFarmWindow(change) {
+    const keys = Object.keys(change ?? {})
+    const ok = {
+      size: v => FARM_SIZES.includes(v),
+      onTop: v => typeof v === 'boolean',
+      stripHeight: v => typeof v === 'string' && Object.hasOwn(STRIP_HEIGHTS, v),
+      stripEdge: v => STRIP_EDGES.includes(v),
+    }
+    if (!keys.length || !keys.every(k => ok[k]?.(change[k]))) return false
+    this.settings.farmWindow = { ...this.farmWindow(), ...change }
+    this.saveSettings()
+    this.emit('farm')
+    this.changed()
+    return true
+  }
+
+  // Where the farm's window was left, as a window: { display, x, y, width,
+  // height }, kept for next time. Nothing else changes with it.
+  farmPlace() {
+    return this.settings.farmPlace ?? null
+  }
+
+  setFarmPlace(place) {
+    this.settings.farmPlace = place
+    this.saveSettings()
+  }
+
+  // The farm's screen: 'auto' (a Xeneon Edge, or another long, short
+  // screen) or a screen's id. Automatic until changed; the Scene's
+  // switch turns it off now, so an old 'off' reads as automatic.
+  farmDisplay() {
+    const d = this.settings.farmDisplay
+    return Number.isInteger(d) ? d : 'auto'
+  }
+
+  setFarmDisplay(display) {
+    if (display !== 'auto' && !Number.isInteger(display)) return false
+    this.settings.farmDisplay = display
+    this.saveSettings()
+    this.emit('farm', display)
+    this.changed()
+    return true
+  }
+
+  // Where everyone lives on that screen: 'farm', 'office' or 'mall'. The
+  // farm until changed.
+  farmScene() {
+    return SCENES.includes(this.settings.farmScene) ? this.settings.farmScene : 'farm'
+  }
+
+  setFarmScene(scene) {
+    if (!SCENES.includes(scene)) return false
+    this.settings.farmScene = scene
+    this.saveSettings()
+    this.changed()
+    return true
+  }
+
+  // The Desktop's screen: 'auto' (the main one) or a screen's id.
+  desktopDisplay() {
+    const d = this.settings.desktopDisplay
+    return Number.isInteger(d) ? d : 'auto'
+  }
+
+  setDesktopDisplay(display) {
+    if (display !== 'auto' && !Number.isInteger(display)) return false
+    this.settings.desktopDisplay = display
+    this.saveSettings()
+    this.emit('desktop', display)
+    this.changed()
+    return true
+  }
+
+  // Whether the Desktop's Pixelings stay over every window, or behind them
+  // with only those asking you something brought to the front. Behind
+  // until changed.
+  desktopOnTop() {
+    return this.settings.desktopOnTop === true
+  }
+
+  setDesktopOnTop(on) {
+    if (typeof on !== 'boolean') return false
+    this.settings.desktopOnTop = on
+    this.saveSettings()
+    this.emit('desktop')
+    this.changed()
+    return true
+  }
+
+  // Whether the Desktop shows how full each one's context is, a bar under
+  // his feet. Hidden until changed.
+  desktopContext() {
+    return this.settings.desktopContext === true
+  }
+
+  setDesktopContext(on) {
+    if (typeof on !== 'boolean') return false
+    this.settings.desktopContext = on
+    this.saveSettings()
+    this.changed()
+    return true
+  }
+
+  setDisplays(displays) {
+    this.displays = displays
+    this.changed()
+  }
+
   open(sid) {
     const agent = this.agents.find(a => a.sid === sid)
     const target = agent && openTarget(agent)
     if (!target) return false
-    this.opener(target)
+    if (target.focus) this.focus(target.focus, () => this.opener(target.fallback))
+    else if (target.first) {
+      this.opener(target.first)
+      setTimeout(() => this.opener(target), VSCODE_FOCUS_MS)
+    } else this.opener(target)
     return true
   }
 

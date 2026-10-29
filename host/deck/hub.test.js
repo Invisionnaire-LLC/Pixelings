@@ -1,11 +1,11 @@
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 
-import { Hub, openTarget, systemOpener, vscodeLink } from './hub.js'
+import { Hub, openTarget, systemOpener, VSCODE_FOCUS_MS, vscodeLink } from './hub.js'
 import { allowed, handler } from './server.js'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'hub-'))
@@ -49,6 +49,37 @@ test('a key opens the Claude app link, VS Code by its link, or the folder', () =
   assert.deepEqual(openTarget(agent('a', { app: 'claude-vscode', cwd: '/x/my app' })), { url: 'vscode://file/x/my%20app' })
   assert.deepEqual(openTarget(agent('a', { app: 'cli', cwd: '/x' })), { path: '/x' })
   assert.deepEqual(openTarget(agent('a', { hostSessionId: 'local_../../x', cwd: '/y' })), { path: '/y' })
+})
+
+const VSCODE_SID = 'f7f5e305-163e-489d-8b62-746e18f4a494'
+
+test("a VS Code session opens by the Claude extension's link, after its folder's window", () => {
+  assert.deepEqual(openTarget(agent(VSCODE_SID, { app: 'claude-vscode', cwd: '/x/my app' })), {
+    url: `vscode://anthropic.claude-code/open?session=${VSCODE_SID}`,
+    first: { url: 'vscode://file/x/my%20app' },
+  })
+  assert.deepEqual(
+    openTarget(agent('../x&prompt=rm', { app: 'claude-vscode', cwd: '/x' })),
+    { url: 'vscode://file/x' },
+    'an id that is not a session id only opens the folder',
+  )
+})
+
+test('opening a VS Code session puts its window in front, then shows the session', () => {
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const { hub, calls } = makeHub([agent(VSCODE_SID, { app: 'claude-vscode', cwd: '/x' })])
+    calls.length = 0
+    assert.equal(hub.open(VSCODE_SID), true)
+    assert.deepEqual(calls, [['open', 'vscode://file/x']])
+    mock.timers.tick(VSCODE_FOCUS_MS)
+    assert.deepEqual(calls, [
+      ['open', 'vscode://file/x'],
+      ['open', `vscode://anthropic.claude-code/open?session=${VSCODE_SID}`],
+    ])
+  } finally {
+    mock.timers.reset()
+  }
 })
 
 test("VS Code's link works for Windows folders too", () => {
@@ -156,6 +187,70 @@ test('a flash change naming anything unknown is refused whole', () => {
   assert.deepEqual(hub.flash(), { question: { style: 'screen', color: 'white', ...OPTS } })
 })
 
+test('the farm is on automatic until a screen is chosen, and says so', () => {
+  const dir = tmp()
+  const make = () => new Hub({ readAgents: () => [], readCodex: null, readGrokBot: null, castFile: path.join(dir, 'c.json'), settingsFile: path.join(dir, 's.json') })
+  const hub = make()
+  assert.equal(hub.farmDisplay(), 'auto')
+  const told = []
+  hub.on('farm', d => told.push(d))
+  for (const bad of ['left', 'off', 1.5, null, {}]) assert.equal(hub.setFarmDisplay(bad), false, 'the mode turns it off now')
+  assert.equal(hub.setFarmDisplay('auto'), true)
+  assert.equal(hub.setFarmDisplay(42), true)
+  assert.deepEqual(told, ['auto', 42])
+  assert.equal(make().farmDisplay(), 42, 'kept')
+  hub.setDisplays([{ id: 42, name: 'XENEON EDGE', width: 2560, height: 720, primary: false }])
+  assert.equal(hub.state().displays[0].name, 'XENEON EDGE')
+  assert.equal(hub.state().farmDisplay, 42)
+})
+
+test('the Pixelings show on the Stream Deck until other displays are turned on, ones that are built', () => {
+  const dir = tmp()
+  const make = () => new Hub({ readAgents: () => [], readCodex: null, readGrokBot: null, castFile: path.join(dir, 'c.json'), settingsFile: path.join(dir, 's.json') })
+  const hub = make()
+  assert.deepEqual(hub.outputs(), { streamdeck: true, external: false, desktop: false })
+  const told = []
+  hub.on('outputs', o => told.push(o))
+  for (const [output, on] of [['main', true], ['esp32', true], ['external', 'yes'], [null, true]]) assert.equal(hub.setOutput(output, on), false)
+  assert.equal(hub.setOutput('external', true), true)
+  assert.deepEqual(told, [{ streamdeck: true, external: true, desktop: false }])
+  assert.equal(hub.setOutput('streamdeck', false), true)
+  assert.equal(hub.setOutput('desktop', true), true)
+  assert.deepEqual(hub.state().outputs, { streamdeck: false, external: true, desktop: true })
+  assert.deepEqual(make().outputs(), { streamdeck: false, external: true, desktop: true }, 'kept')
+  // A farm turned off before, back when it had an Off, shows on automatic.
+  hub.settings.farmDisplay = 'off'
+  assert.equal(hub.farmDisplay(), 'auto')
+})
+
+test("the farm's window is full screen until a window or a strip is chosen, and where it was left is kept", () => {
+  const dir = tmp()
+  const make = () => new Hub({ readAgents: () => [], readCodex: null, readGrokBot: null, castFile: path.join(dir, 'c.json'), settingsFile: path.join(dir, 's.json') })
+  const hub = make()
+  assert.equal(hub.farmWindow().size, 'full')
+  let told = 0
+  hub.on('farm', () => told++)
+  for (const bad of [{}, { size: 'huge' }, { onTop: 1 }, { stripHeight: 'toString' }, { stripEdge: 'left' }, { colour: 'red' }]) assert.equal(hub.setFarmWindow(bad), false)
+  assert.equal(hub.setFarmWindow({ size: 'strip', stripHeight: 'large', stripEdge: 'top' }), true)
+  assert.equal(hub.setFarmWindow({ onTop: false }), true)
+  assert.equal(told, 2)
+  assert.deepEqual(make().farmWindow(), { size: 'strip', onTop: false, stripHeight: 'large', stripEdge: 'top' })
+  hub.setFarmPlace({ display: 4, x: 1, y: 2, width: 900, height: 400 })
+  assert.equal(told, 2, 'moving the window changes nothing else')
+  assert.deepEqual(make().farmPlace(), { display: 4, x: 1, y: 2, width: 900, height: 400 })
+})
+
+test('everyone lives on the farm until the office or the mall is chosen', () => {
+  const dir = tmp()
+  const make = () => new Hub({ readAgents: () => [], readCodex: null, readGrokBot: null, castFile: path.join(dir, 'c.json'), settingsFile: path.join(dir, 's.json') })
+  const hub = make()
+  assert.equal(hub.farmScene(), 'farm')
+  for (const bad of ['moon', 1, null, {}]) assert.equal(hub.setFarmScene(bad), false)
+  assert.equal(hub.setFarmScene('mall'), true)
+  assert.equal(hub.state().farmScene, 'mall')
+  assert.equal(make().farmScene(), 'mall', 'kept')
+})
+
 test('a new agent needs a real folder, and goes through the Claude app link', () => {
   const { hub, calls } = makeHub([])
   const dir = tmp()
@@ -216,6 +311,34 @@ test('the server serves the page and takes actions', async () => {
   assert.equal((await post('/api/open-at-login', { on: false })).status, 200)
   assert.equal(hub.openAtLogin(), false)
   assert.equal((await post('/api/open-at-login', { on: 'no' })).status, 400)
+  assert.equal((await fetch(`${base}/farm`)).status, 200)
+  assert.equal((await fetch(`${base}/farm.js`)).status, 200)
+  assert.equal((await fetch(`${base}/lib/farm.js`)).status, 200)
+  assert.equal((await post('/api/farm-display', { display: 7 })).status, 200)
+  assert.equal(hub.farmDisplay(), 7)
+  assert.equal((await post('/api/farm-display', { display: 'left' })).status, 400)
+  assert.equal((await post('/api/output', { output: 'external', on: true })).status, 200)
+  assert.equal(hub.outputs().external, true)
+  assert.equal((await post('/api/output', { output: 'esp32', on: true })).status, 400)
+  assert.equal(hub.desktopDisplay(), 'auto')
+  assert.equal((await post('/api/desktop-display', { display: 7 })).status, 200)
+  assert.equal(hub.state().desktopDisplay, 7)
+  assert.equal((await post('/api/desktop-display', { display: 'left' })).status, 400)
+  assert.equal(hub.state().desktopOnTop, false)
+  assert.equal((await post('/api/desktop-on-top', { on: true })).status, 200)
+  assert.equal(hub.desktopOnTop(), true)
+  assert.equal((await post('/api/desktop-on-top', { on: 'yes' })).status, 400)
+  assert.equal(hub.state().desktopContext, false)
+  assert.equal((await post('/api/desktop-context', { on: true })).status, 200)
+  assert.equal(hub.desktopContext(), true)
+  assert.equal((await post('/api/desktop-context', { on: 1 })).status, 400)
+  assert.equal((await post('/api/farm-window', { size: 'window' })).status, 200)
+  assert.equal(hub.farmWindow().size, 'window')
+  assert.equal((await post('/api/farm-window', { size: 'huge' })).status, 400)
+  assert.equal((await fetch(`${base}/lib/mode.js`)).status, 200)
+  assert.equal((await post('/api/farm-scene', { scene: 'office' })).status, 200)
+  assert.equal(hub.farmScene(), 'office')
+  assert.equal((await post('/api/farm-scene', { scene: 'moon' })).status, 400)
   const text = await fetch(`${base}/api/move`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })
   assert.equal(text.status, 403)
   server.close()
@@ -256,6 +379,83 @@ test('a Codex thread opens in the Codex app by its link, a terminal one by its f
   assert.deepEqual(openTarget({ app: 'codex-app', codexThread: id, cwd: '/x' }), { url: `codex://threads/${id}` })
   assert.deepEqual(openTarget({ app: 'codex-cli', codexThread: id, cwd: '/x' }), { path: '/x' })
   assert.deepEqual(openTarget({ app: 'codex-app', codexThread: '../evil', cwd: '/x' }), { path: '/x' })
+})
+
+const GHOSTTY = { app: 'ghostty', bundle: '/Applications/Ghostty.app', tty: '/dev/ttys003' }
+const CURSOR = { app: 'cursor', bundle: '/Applications/Cursor.app' }
+
+test('a terminal session opens its tab in its terminal, with the terminal itself to fall back on', () => {
+  assert.deepEqual(openTarget(agent('a', { app: 'cli', cwd: '/x', title: 'Easel', host: GHOSTTY })), {
+    focus: { ...GHOSTTY, tmux: undefined, cwd: '/x', title: 'Easel' },
+    fallback: { path: '/Applications/Ghostty.app' },
+  })
+  const tmux = { pane: '%3', client: '/dev/ttys007' }
+  assert.deepEqual(openTarget(agent('a', { app: 'cli', cwd: '/x', host: { ...GHOSTTY, tmux } })).focus.tmux, tmux)
+})
+
+test('a Claude Code session in Cursor opens in Cursor, by its own links', () => {
+  assert.deepEqual(openTarget(agent(VSCODE_SID, { app: 'claude-vscode', cwd: '/x/my app', host: CURSOR })), {
+    url: `cursor://anthropic.claude-code/open?session=${VSCODE_SID}`,
+    first: { url: 'cursor://file/x/my%20app' },
+  })
+})
+
+test("in an editor's own terminal, or in any other app, it opens there", () => {
+  assert.deepEqual(openTarget(agent('a', { app: 'cli', cwd: '/x', host: CURSOR })), { url: 'cursor://file/x' })
+  assert.deepEqual(openTarget(agent('a', { app: 'cli', cwd: '/x', host: { app: 'vscode', bundle: '/V.app' } })), { url: 'vscode://file/x' })
+  assert.deepEqual(openTarget(agent('a', { app: 'cli', cwd: '/x', host: { app: 'app', bundle: '/Applications/Warp.app' } })), {
+    path: '/Applications/Warp.app',
+  })
+  const id = '01a16b54-790d-7e43-b804-a7ec7aa1cab7'
+  assert.deepEqual(openTarget({ app: 'codex-cli', codexThread: id, cwd: '/x', host: GHOSTTY }).focus.app, 'ghostty')
+})
+
+test("pressing a terminal session shows its tab, or brings its terminal forward when that can't", () => {
+  const opened = []
+  const focused = []
+  let works = true
+  const hub = new Hub({
+    readAgents: () => [agent('g', { app: 'cli', cwd: '/x', title: 'Easel', host: GHOSTTY })],
+    readCodex: null,
+    readGrokBot: null,
+    castFile: path.join(tmp(), 'c.json'),
+    settingsFile: path.join(tmp(), 's.json'),
+    hosts: null,
+    opener: target => opened.push(target.url ?? target.path),
+    focus: (focus, failed) => (focused.push(focus.title), works || failed()),
+  })
+  hub.refresh()
+  assert.equal(hub.open('g'), true)
+  assert.deepEqual(focused, ['Easel'])
+  assert.deepEqual(opened, [], 'not Finder, not the folder')
+  works = false
+  hub.open('g')
+  assert.deepEqual(opened, ['/Applications/Ghostty.app'])
+})
+
+test('the hub gives every agent its host before the page sees them', () => {
+  const seen = []
+  const hub = new Hub({
+    readAgents: () => [agent('h', { pid: 42 })],
+    readCodex: null,
+    readGrokBot: null,
+    castFile: path.join(tmp(), 'c.json'),
+    settingsFile: path.join(tmp(), 's.json'),
+    hosts: { attach: agents => (seen.push(...agents.map(a => a.sid)), agents.forEach(a => (a.host = GHOSTTY))) },
+  })
+  hub.refresh()
+  assert.deepEqual(seen, ['h'])
+  assert.equal(hub.agents[0].host, GHOSTTY)
+  const broken = new Hub({
+    readAgents: () => [agent('h')],
+    readCodex: null,
+    readGrokBot: null,
+    castFile: path.join(tmp(), 'c.json'),
+    settingsFile: path.join(tmp(), 's.json'),
+    hosts: { attach: () => { throw new Error('no ps') } },
+  })
+  broken.refresh()
+  assert.equal(broken.agents.length, 1, 'still on the deck')
 })
 
 test("a T3 Code thread's key opens it in T3 Code", () => {

@@ -14,6 +14,7 @@ import path from 'node:path'
 export { layout } from './layout.js'
 import { claudeDir, sessionsDir } from './paths.js'
 import { T3Threads } from './t3.js'
+import { defaultName, SessionTitles } from './titles.js'
 
 export const SESSIONS_DIR = path.join(claudeDir(), 'sessions')
 export const LINES_DIR = sessionsDir()
@@ -26,6 +27,8 @@ const AGENT_KINDS = new Set(['bg', 'sdk', 'subagent', 'worker'])
 const SAME_MOMENT_MS = 2000
 // Which T3 Code thread runs each session, for the ones it does.
 const T3 = new T3Threads()
+// The titles of sessions Claude Code only gave its default name.
+const TITLES = new SessionTitles()
 
 export function agentOf(s, line, now) {
   const statusAt = s.statusUpdatedAt ?? s.updatedAt ?? s.startedAt ?? 0
@@ -91,7 +94,7 @@ function readJson(file) {
 }
 
 // Every live session, read from disk now.
-export function readAgents(now = Date.now(), sessionsDir = SESSIONS_DIR, linesDir = LINES_DIR, t3 = T3) {
+export function readAgents(now = Date.now(), sessionsDir = SESSIONS_DIR, linesDir = LINES_DIR, t3 = T3, titles = TITLES) {
   let names = []
   try {
     names = fs.readdirSync(sessionsDir).filter(n => /^\d+\.json$/.test(n))
@@ -121,6 +124,10 @@ export function readAgents(now = Date.now(), sessionsDir = SESSIONS_DIR, linesDi
       }
     }
     const agent = agentOf(s, line, now)
+    // A VS Code session (or any left with Claude Code's default name, like
+    // "sciroadsv2-04"): the title its transcript gives it, as VS Code shows.
+    const title = defaultName(s.name, s.cwd) ? titles?.titleFor(agent.sid, s.cwd) : undefined
+    if (title) agent.title = title
     // T3 Code runs Claude Code through the Agent SDK: its sessions are
     // sdk-cli, as are other hosts', so only one T3 has a thread for is T3's.
     const t3Thread = agent.app === 'sdk-cli' ? t3?.threadFor(agent.sid, now) : null
