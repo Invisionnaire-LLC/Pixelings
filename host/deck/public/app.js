@@ -18,7 +18,7 @@ import {
 } from '/lib/render.js'
 import { DOT_NAMES, DOTS } from '/lib/dots.js'
 import { pickFarmDisplay } from '/lib/farm.js'
-import { BUILT_OUTPUTS, OUTPUT_ABOUT, OUTPUT_NAMES, OUTPUTS, outputStatus, pickDesktopDisplay, showingOn } from '/lib/mode.js'
+import { BUILT_OUTPUTS, DESKTOP_SIZES, OUTPUT_ABOUT, OUTPUT_NAMES, OUTPUTS, outputStatus, pickDesktopDisplay, showingOn } from '/lib/mode.js'
 import { SCENE_NAMES, SCENES } from '/lib/scenes.js'
 import { ACCESSORIES, BLINK_MS, BODIES, BODY_NAMES, HABITS, HATS, TAP_MS } from '/lib/wardrobe.js'
 
@@ -665,6 +665,12 @@ function renderFarm() {
 
 $('desktop-on-top').addEventListener('change', e => post('/api/desktop-on-top', { on: e.target.checked }))
 $('desktop-context').addEventListener('change', e => post('/api/desktop-context', { on: e.target.checked }))
+$('desktop-grow').addEventListener('change', e => post('/api/desktop-grow', { on: e.target.checked }))
+const sizeHint = size => `${size}×, from 1× (smallest) to 3×.`
+Object.assign($('desktop-size'), { min: DESKTOP_SIZES.min, max: DESKTOP_SIZES.max, step: DESKTOP_SIZES.step })
+// Said as you slide; they grow or shrink once you let go.
+$('desktop-size').addEventListener('input', e => ($('desktop-size-hint').textContent = sizeHint(Number(e.target.value))))
+$('desktop-size').addEventListener('change', e => post('/api/desktop-size', { size: Number(e.target.value) }))
 
 function renderDesktop() {
   screenChoices($('desktop-display'), 'Main Screen', '/api/desktop-display', state.desktopDisplay)
@@ -677,6 +683,11 @@ function renderDesktop() {
     ? 'Over every window, all the time.'
     : 'Behind the window you are using. One asking you something comes to the front until you answer him.'
   $('desktop-context').checked = Boolean(state.desktopContext)
+  $('desktop-grow').checked = Boolean(state.desktopGrow)
+  if (document.activeElement !== $('desktop-size')) {
+    $('desktop-size').value = state.desktopSize ?? DESKTOP_SIZES.default
+    $('desktop-size-hint').textContent = sizeHint(Number($('desktop-size').value))
+  }
 }
 
 // ---- General: starting at login, and the version ----

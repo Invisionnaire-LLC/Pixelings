@@ -136,6 +136,9 @@ test('a tap finds the Pixeling in front', () => {
   assert.equal(farm.hit(303, 150)?.sid, 'front')
   assert.equal(farm.hit(300, 120)?.sid, 'back')
   assert.equal(farm.hit(10, 10), null)
+  // Grown twice as big, he is there further up and out too.
+  assert.equal(farm.hit(300, 100)?.sid, undefined)
+  assert.equal(farm.hit(300, 100, a => (a.sid === 'back' ? 2 : 1))?.sid, 'back')
 })
 
 test('on the Desktop they stroll along the thin strip at its bottom, and nowhere else', () => {
@@ -154,4 +157,31 @@ test('on the Desktop they stroll along the thin strip at its bottom, and nowhere
   }
   assert.ok(walked)
   assert.notDeepEqual([...farm.actors.values()].map(a => a.x), start)
+})
+
+test('one dragged out of the way stays where he is held, on the ground, and goes on from where he is put', () => {
+  const L = desktopLayout(1000, 84)
+  const farm = new Farm(L, seeded(4))
+  farm.update([agent('a'), agent('b', 'ask')], 0)
+  farm.hold('a', 600, 10, 2000)
+  // Off the top of the strip: he stays on its ground.
+  assert.deepEqual([farm.actors.get('a').x, farm.actors.get('a').y], [600, L.ground.top])
+  for (let t = 2000; t <= 60_000; t += 100) farm.step(t)
+  assert.deepEqual([farm.actors.get('a').x, farm.actors.get('a').y], [600, L.ground.top])
+  farm.hold('a', 5000, L.ground.bottom, 60_000)
+  farm.drop('a', 60_000)
+  assert.equal(farm.actors.get('a').x, L.w - 14)
+  assert.equal(farm.actors.get('a').held, false)
+  let walked = false
+  for (let t = 60_000; t <= 120_000 && !walked; t += 100) {
+    farm.step(t)
+    walked = farm.actors.get('a').plan === 'walk'
+  }
+  assert.ok(walked)
+  // One asking you something is put down and stays put, still asking.
+  farm.hold('b', 300, L.ground.bottom, 0)
+  farm.drop('b', 0)
+  farm.step(130_000)
+  assert.equal(farm.actors.get('b').x, 300)
+  assert.equal(farm.actors.get('b').plan, 'busy')
 })

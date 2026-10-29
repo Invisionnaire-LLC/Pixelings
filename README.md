@@ -76,9 +76,10 @@ fills the screen, sits in a window you move and size, or runs as a strip
 along its top or bottom; and the **Desktop**, where they walk along the
 bottom of a screen (your main one, or one you pick) just above the Dock or
 the taskbar, with nothing behind them. On the Desktop a click on one opens
-his session, and a click anywhere else goes to the window under them.
+his session, dragging him moves him out of your way, and a click anywhere else goes to the window under them.
 They stay behind the window you are using, and one asking you something
-comes to the front until you answer it (or keep them all on top). The
+comes to the front until you answer it (or keep them all on top). Pick
+how big they are there, and let each one grow as his context fills. The
 ESP32 Board is coming. The menu bar and the window are always there.
 
 The window shows the deck live, plugged in or not. Drag a character to move

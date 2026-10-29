@@ -21,7 +21,10 @@
 //   POST /api/desktop-display { display }      "auto" or a screen's id
 //   POST /api/desktop-on-top { on }            the Desktop over every window, or behind
 //   POST /api/desktop-context { on }           the Desktop's context bars shown or not
+//   POST /api/desktop-size   { size }          how big they are on the Desktop, 1 to 3
+//   POST /api/desktop-grow   { on }            on the Desktop, bigger as their context fills
 //   POST /api/open           { sid }
+//   POST /api/dismiss        { sid }           gone until his session does something again
 //   POST /api/new            { folder }
 //   POST /api/choose-folder  {}                → { folder }
 //
@@ -173,6 +176,12 @@ export function handler(hub, port = PORT) {
         return done(hub.setDesktopOnTop(body.on))
       case '/api/desktop-context':
         return done(hub.setDesktopContext(body.on))
+      case '/api/desktop-size':
+        return done(hub.setDesktopSize(body.size))
+      case '/api/desktop-grow':
+        return done(hub.setDesktopGrow(body.on))
+      case '/api/dismiss':
+        return done(hub.dismiss(body.sid))
       case '/api/open':
         return done(hub.open(body.sid))
       case '/api/new':

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { desktopBounds, farmBounds, farmWindowFrom, outputsFrom, outputStatus, pickDesktopDisplay, showingOn } from './mode.js'
+import { desktopBounds, desktopGrowth, desktopSizeFrom, farmBounds, farmWindowFrom, outputsFrom, outputStatus, pickDesktopDisplay, showingOn } from './mode.js'
 
 const MAIN = { id: 1, name: 'Built-in Retina Display', width: 1512, height: 982, primary: true }
 const EDGE = { id: 3, name: 'XENEON EDGE', width: 2560, height: 720, primary: false }
@@ -70,5 +70,23 @@ test("the Desktop picks the main screen until changed, and sits along the bottom
   assert.equal(pickDesktopDisplay([MAIN], 3), null)
   // The work area stops above the Dock (or the taskbar): the band ends there.
   const display = { id: 1, bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 38, width: 1512, height: 880 } }
-  assert.deepEqual(desktopBounds(display), { x: 0, y: 750, width: 1512, height: 168 })
+  assert.deepEqual(desktopBounds(display, 2), { x: 0, y: 750, width: 1512, height: 168 })
+  assert.equal(desktopBounds(display).height, 126)
+  assert.equal(desktopBounds(display, 1).height, 84)
+})
+
+test('growing with their context, they are up to twice as big, in a window tall enough for it', () => {
+  assert.equal(desktopGrowth(undefined), 1)
+  assert.equal(desktopGrowth(0), 1)
+  assert.equal(desktopGrowth(50), 1.5)
+  assert.equal(desktopGrowth(100), 2)
+  assert.equal(desktopGrowth(130), 2)
+  const display = { id: 1, bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 38, width: 1512, height: 880 } }
+  assert.deepEqual(desktopBounds(display, 1.5, true), { x: 0, y: 666, width: 1512, height: 252 })
+})
+
+test('the Desktop is 1.5 big until changed, in half steps from 1 to 3', () => {
+  assert.equal(desktopSizeFrom({}), 1.5)
+  assert.equal(desktopSizeFrom({ desktopSize: 2.5 }), 2.5)
+  for (const v of [0.5, 3.5, 1.25, '2', null]) assert.equal(desktopSizeFrom({ desktopSize: v }), 1.5)
 })

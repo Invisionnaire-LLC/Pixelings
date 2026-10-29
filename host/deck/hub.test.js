@@ -332,6 +332,14 @@ test('the server serves the page and takes actions', async () => {
   assert.equal((await post('/api/desktop-context', { on: true })).status, 200)
   assert.equal(hub.desktopContext(), true)
   assert.equal((await post('/api/desktop-context', { on: 1 })).status, 400)
+  assert.equal(hub.state().desktopSize, 1.5)
+  assert.equal((await post('/api/desktop-size', { size: 1 })).status, 200)
+  assert.equal(hub.desktopSize(), 1)
+  for (const size of [0.5, 4, 1.3, 'big']) assert.equal((await post('/api/desktop-size', { size })).status, 400)
+  assert.equal(hub.state().desktopGrow, false)
+  assert.equal((await post('/api/desktop-grow', { on: true })).status, 200)
+  assert.equal(hub.desktopGrow(), true)
+  assert.equal((await post('/api/desktop-grow', { on: 'yes' })).status, 400)
   assert.equal((await post('/api/farm-window', { size: 'window' })).status, 200)
   assert.equal(hub.farmWindow().size, 'window')
   assert.equal((await post('/api/farm-window', { size: 'huge' })).status, 400)
@@ -584,4 +592,26 @@ test('starting at login: on until changed, told to the app, kept; the window lea
   assert.equal(hub.state().openAtLogin, false)
   for (const bad of ['off', 0, null, undefined]) assert.equal(hub.setOpenAtLogin(bad), false, String(bad))
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'))).openAtLogin, false)
+})
+
+test('a dismissed agent is gone everywhere until his session does something again', () => {
+  const agents = [agent('a', { kind: 'compacting', since: 1000 }), agent('b')]
+  const { hub } = makeHub(agents)
+  assert.equal(hub.dismiss('nobody'), false)
+  assert.equal(hub.dismiss('a'), true)
+  assert.deepEqual(hub.agents.map(a => a.sid), ['b'])
+  assert.deepEqual(hub.state().agents.map(a => a.sid), ['b'])
+  // Nothing new: still gone.
+  hub.refresh()
+  assert.deepEqual(hub.agents.map(a => a.sid), ['b'])
+  // He does something: back, and forgotten as dismissed.
+  agents[0] = agent('a', { kind: 'working', since: 2000 })
+  hub.refresh()
+  assert.deepEqual(hub.agents.map(a => a.sid).sort(), ['a', 'b'])
+  assert.deepEqual(hub.settings.dismissed, {})
+  // A dismissed session that ends is forgotten too.
+  hub.dismiss('b')
+  agents.pop()
+  hub.refresh()
+  assert.deepEqual(hub.settings.dismissed, {})
 })

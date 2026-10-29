@@ -3,11 +3,14 @@
 // is over a Pixeling, and to let them through to what is under it the rest
 // of the time. Behind your windows, the back page says who is asking you
 // something and where they stand, and the front page (over every window)
-// hears it, to show just them.
+// hears it, to show just them. One dragged in the front page is put down
+// where he was dropped in the back one too.
 const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('pixelings', {
   catchClicks: on => ipcRenderer.send('desktop-catch-clicks', on === true),
   front: list => ipcRenderer.send('desktop-front', list),
   onFront: listen => ipcRenderer.on('desktop-front', (e, list) => listen(list)),
+  move: put => ipcRenderer.send('desktop-move', put),
+  onMove: listen => ipcRenderer.on('desktop-move', (e, put) => listen(put)),
 })

@@ -1,9 +1,9 @@
 // The farm page, full screen on its own display (main.js opens it there):
 // the farm, the office or the mall drawn in pixels, a world pixel to SCALE
 // screen pixels, and every agent's Pixeling in it, drawn by the deck's own
-// code (renderFigure). Tap one to open his session; tap the way in (the
-// barn door, the lift, the mall's doors) for a new agent, or the corner's
-// name for the next place. Who goes where is farm.js's.
+// code (renderFigure). Tap one to open his session, drag him out of the way,
+// or right-click him to dismiss him; tap the way in (the barn door, the lift, the mall's doors)
+// for a new agent, or the corner's name for the next place. Who goes where is farm.js's.
 //
 // As the Desktop (?desktop=back, main.js opens it in a see-through window
 // along the bottom of a screen) it is only the Pixelings, walking along
@@ -13,7 +13,7 @@
 // asking you something show instead in a second one over every window
 // (?desktop=front), standing where they stood, until they don't.
 import { ARRIVE_MS, atDoor, desktopLayout, Farm, FARM_H, farmLayout, farmRandom, FEET, LEAVE_MS, SCENES } from '/lib/farm.js'
-import { DESKTOP_H } from '/lib/mode.js'
+import { DESKTOP_SIZES, desktopGrowth } from '/lib/mode.js'
 import { fitWords, GLYPHS, heat, heatColor, keyLabel, renderFigure, SIZE } from '/lib/render.js'
 
 const canvas = document.getElementById('farm')
@@ -29,6 +29,9 @@ const FRONT = PARAMS.get('desktop') === 'front'
 if (DESKTOP) document.documentElement.style.background = document.body.style.background = 'transparent'
 
 let scale = 1
+// Screen pixels to a world pixel in the canvas itself: the Desktop draws
+// at the screen's own, so one grown a little bigger stays sharp.
+let res = 1
 let L = null
 let farm = null
 let state = { agents: [] }
@@ -1096,12 +1099,13 @@ function drawActor(a, now) {
   }
 }
 
-// His label and context bar, drawn after everyone so no one in front hides them.
+// His label and context bar, drawn after everyone so no one in front hides
+// them; his label over his head however big he has grown.
 function drawLabels(a, now) {
   if (a.leftAt !== null) return
   const since = now - a.born
   const drop = since < ARRIVE_MS ? -70 * (1 - since / ARRIVE_MS) ** 2 : 0
-  tag(a, now, drop)
+  tag(a, now, drop - 50 * (grown(a) - 1))
   contextBar(a, now)
 }
 
@@ -1113,13 +1117,16 @@ async function post(url, body) {
 }
 
 canvas.addEventListener('pointerdown', async e => {
-  if (!farm) return
+  if (!farm || e.button !== 0) return
+  if (menuFor) return closeMenu()
   const x = e.offsetX / scale
   const y = e.offsetY / scale
-  const a = farm.hit(x, y)
+  const a = hitAt(x, y)
   if (a) {
-    taps.push({ x: a.x, y: a.y - 20, at: performance.now(), word: 'OPENING' })
-    post('/api/open', { sid: a.sid })
+    // Held: let go where you pressed and his session opens; drag, and he
+    // goes where you put him.
+    press = { sid: a.sid, x: e.offsetX, y: e.offsetY, dx: a.x - x, dy: a.y - y, moved: false }
+    canvas.setPointerCapture(e.pointerId)
     return
   }
   if (DESKTOP) return
@@ -1136,6 +1143,53 @@ canvas.addEventListener('pointerdown', async e => {
   }
 })
 
+// ---- Dragging one out of your way ----
+
+// Who is held down: where (screen pixels), where on him (world pixels),
+// and whether he has been moved yet.
+let press = null
+const DRAG_PX = 4
+// Those just put down in the front page, until the back page has them there.
+const putDown = new Map()
+
+canvas.addEventListener('pointermove', e => {
+  if (!press) return
+  if (!press.moved && Math.hypot(e.offsetX - press.x, e.offsetY - press.y) < DRAG_PX) return
+  press.moved = true
+  canvas.style.cursor = 'grabbing'
+  farm.hold(press.sid, e.offsetX / scale + press.dx, e.offsetY / scale + press.dy, Date.now())
+})
+
+function letGo(open) {
+  const p = press
+  press = null
+  canvas.style.cursor = ''
+  const a = p && farm.actors.get(p.sid)
+  if (!a) return
+  if (!p.moved) {
+    if (!open) return
+    taps.push({ x: a.x, y: a.y - 20 * grown(a), at: performance.now(), word: 'OPENING' })
+    post('/api/open', { sid: a.sid })
+    return
+  }
+  farm.drop(a.sid, Date.now())
+  // The front page shows the back page's: he is put down there too.
+  if (FRONT) {
+    const put = { sid: a.sid, x: Math.round(a.x), y: Math.round(a.y), at: performance.now() }
+    putDown.set(a.sid, put)
+    window.pixelings?.move(put)
+  }
+}
+canvas.addEventListener('pointerup', () => letGo(true))
+canvas.addEventListener('pointercancel', () => letGo(false))
+
+if (DESKTOP && !FRONT) {
+  window.pixelings?.onMove(put => {
+    farm.hold(put.sid, put.x, put.y, Date.now())
+    farm.drop(put.sid, Date.now())
+  })
+}
+
 // ---- The Desktop: clicks go through but for them ----
 
 // Where the mouse is over the window (world pixels), or null; the app
@@ -1143,20 +1197,72 @@ canvas.addEventListener('pointerdown', async e => {
 let mouse = null
 let catching = false
 if (DESKTOP) {
-  addEventListener('mousemove', e => (mouse = { x: e.clientX / scale, y: e.clientY / scale }))
+  addEventListener('mousemove', e => (mouse = { x: e.clientX / scale, y: e.clientY / scale, cx: e.clientX, cy: e.clientY }))
   document.addEventListener('mouseleave', () => (mouse = null))
 }
 
-// Asks the app to take clicks while the mouse is over one of them, and to
-// let them through again once it is not; checked every frame, as they
-// walk under a still mouse too.
+// Asks the app to take clicks while the mouse is over one of them (or his
+// menu), and to let them through again once it is not; checked every
+// frame, as they walk under a still mouse too. A menu left alone closes.
 function catchClicks() {
-  const hit = mouse && farm.hit(mouse.x, mouse.y)
-  const over = Boolean(hit && (FRONT || state.desktopOnTop || !inFront(hit)))
+  const hit = mouse && hitAt(mouse.x, mouse.y)
+  const onMenu = Boolean(menuFor && mouse && overMenu(mouse.cx, mouse.cy))
+  if (menuFor && (onMenu || hit?.sid === menuFor)) menuSeen = performance.now()
+  if (menuFor && performance.now() - menuSeen > MENU_IDLE_MS) closeMenu()
+  const over = Boolean(press) || onMenu || Boolean(hit && (FRONT || state.desktopOnTop || !inFront(hit)))
   if (over === catching) return
   catching = over
   window.pixelings?.catchClicks(over)
 }
+
+// ---- Right-click: his menu ----
+
+// Dismiss clears whatever he was doing and sends him off every display
+// (the hub keeps him gone until his session does something again).
+const menu = document.createElement('div')
+menu.className = 'menu'
+menu.hidden = true
+const dismissItem = document.createElement('button')
+dismissItem.type = 'button'
+dismissItem.textContent = 'Dismiss'
+menu.append(dismissItem)
+document.body.append(menu)
+// Whose menu is open, and when the mouse was last on it (or him).
+let menuFor = null
+let menuSeen = 0
+const MENU_IDLE_MS = 2500
+
+function overMenu(cx, cy) {
+  const r = menu.getBoundingClientRect()
+  return cx >= r.left - 4 && cx <= r.right + 4 && cy >= r.top - 4 && cy <= r.bottom + 4
+}
+
+function closeMenu() {
+  menuFor = null
+  menu.hidden = true
+}
+
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault()
+  const a = farm && hitAt(e.offsetX / scale, e.offsetY / scale)
+  if (!a) return closeMenu()
+  menuFor = a.sid
+  menuSeen = performance.now()
+  menu.hidden = false
+  // Beside the mouse, kept inside the window (the Desktop's is short).
+  const left = Math.min(e.clientX + 2, innerWidth - menu.offsetWidth - 4)
+  const top = e.clientY + menu.offsetHeight + 4 > innerHeight ? e.clientY - menu.offsetHeight - 2 : e.clientY + 2
+  menu.style.left = `${Math.max(4, left)}px`
+  menu.style.top = `${Math.max(4, top)}px`
+})
+
+dismissItem.addEventListener('click', () => {
+  const sid = menuFor
+  closeMenu()
+  if (sid) post('/api/dismiss', { sid })
+})
+addEventListener('keydown', e => e.key === 'Escape' && closeMenu())
+addEventListener('blur', closeMenu)
 
 // The place's name in the top corner: a tap goes to the next one.
 function chipBox() {
@@ -1196,11 +1302,15 @@ function drawTaps(now) {
 function resize() {
   // Never less than the world's height: a window or strip between sizes
   // shows more, not less.
-  scale = Math.max(1, Math.floor(innerHeight / (DESKTOP ? DESKTOP_H : FARM_H)))
+  // The Desktop's as big as chosen in Settings.
+  scale = DESKTOP ? (state.desktopSize ?? DESKTOP_SIZES.default) : Math.max(1, Math.floor(innerHeight / FARM_H))
+  res = DESKTOP ? Math.max(1, Math.round(scale * devicePixelRatio)) : 1
   const w = Math.ceil(innerWidth / scale)
   const h = Math.ceil(innerHeight / scale)
-  canvas.width = bg.width = w
-  canvas.height = bg.height = h
+  bg.width = w
+  bg.height = h
+  canvas.width = w * res
+  canvas.height = h * res
   canvas.style.width = `${w * scale}px`
   canvas.style.height = `${h * scale}px`
   L = DESKTOP ? desktopLayout(w, h) : farmLayout(w, h, sceneNow())
@@ -1295,13 +1405,22 @@ function tellFront() {
   window.pixelings?.front(list)
 }
 
-// The front page: just those the back page says are asking, standing still.
+// The front page: just those the back page says are asking, standing still
+// (or where you are dragging one, or just put him).
 function showFront(list) {
   const agents = new Map(state.agents.map(a => [a.sid, a]))
+  const was = farm.actors
   farm.actors = new Map(
     list
       .filter(p => agents.get(p.sid)?.kind === 'ask')
-      .map(p => [p.sid, { sid: p.sid, agent: agents.get(p.sid), x: p.x, y: p.y, born: p.born, leftAt: null, plan: 'busy' }]),
+      .map(p => {
+        const agent = agents.get(p.sid)
+        if (press?.sid === p.sid && was.has(p.sid)) return [p.sid, Object.assign(was.get(p.sid), { agent })]
+        const put = putDown.get(p.sid)
+        if (put && (performance.now() - put.at > 2000 || (put.x === p.x && put.y === p.y))) putDown.delete(p.sid)
+        const at = putDown.get(p.sid) ?? p
+        return [p.sid, { sid: p.sid, agent, x: at.x, y: at.y, born: p.born, leftAt: null, plan: 'busy' }]
+      }),
   )
 }
 let frontList = []
@@ -1312,16 +1431,43 @@ if (FRONT) {
   })
 }
 
+// How many times his size each one is drawn on the Desktop: growing with
+// his context there (mode.js), eased to it as it fills or is compacted.
+const grownBy = new Map()
+const grown = a => grownBy.get(a.sid) ?? 1
+const hitAt = (x, y) => farm.hit(x, y, grown)
+
+function growAll() {
+  for (const sid of grownBy.keys()) if (!farm.actors.has(sid)) grownBy.delete(sid)
+  for (const a of farm.actors.values()) {
+    const want = state.desktopGrow ? desktopGrowth(a.agent.pct) : 1
+    const k = grownBy.get(a.sid) ?? want
+    grownBy.set(a.sid, Math.abs(want - k) < 0.005 ? want : k + (want - k) * 0.08)
+  }
+}
+
 // The Desktop: only them, the furthest back first, over nothing.
 function drawDesktop(now) {
   if (!FRONT) {
     farm.step(now)
     tellFront()
   }
+  g.setTransform(res, 0, 0, res, 0, 0)
+  g.imageSmoothingEnabled = false
   g.clearRect(0, 0, L.w, L.h)
+  growAll()
   let actors = [...farm.actors.values()].sort((p, q) => p.y - q.y)
   if (!FRONT && !state.desktopOnTop) actors = actors.filter(a => !inFront(a))
-  for (const a of actors) drawActor(a, now)
+  for (const a of actors) {
+    // Bigger from his feet up.
+    const k = grown(a)
+    g.save()
+    g.translate(a.x, a.y)
+    g.scale(k, k)
+    g.translate(-a.x, -a.y)
+    drawActor(a, now)
+    g.restore()
+  }
   for (const a of actors) drawLabels(a, now)
   drawTaps(performance.now())
   catchClicks()
@@ -1334,6 +1480,8 @@ requestAnimationFrame(draw)
 const events = new EventSource('/api/events')
 events.onmessage = e => {
   state = JSON.parse(e.data)
+  // Made bigger or smaller in Settings.
+  if (DESKTOP && (state.desktopSize ?? DESKTOP_SIZES.default) !== scale) resize()
   // Somewhere else chosen: everyone goes there.
   if (sceneNow() !== L.scene) {
     L = farmLayout(L.w, L.h, sceneNow())

@@ -310,6 +310,27 @@ export class Farm {
     this.rest(a, now)
   }
 
+  // Picked up (dragged out of your way): he is wherever he is held, on the
+  // ground, until he is put down, and goes on from there.
+  hold(sid, x, y, now) {
+    const a = this.actors.get(sid)
+    if (!a || a.leftAt !== null) return
+    const L = this.L
+    const at = { x: Math.min(L.w - 14, Math.max(14, x)), y: Math.min(L.ground.bottom, Math.max(L.ground.top, y)) }
+    if (walkable(L, at.x, at.y)) Object.assign(a, at)
+    if (!a.held) {
+      a.held = true
+      if (a.plan !== 'busy') this.rest(a, now)
+    }
+  }
+
+  drop(sid, now) {
+    const a = this.actors.get(sid)
+    if (!a?.held) return
+    a.held = false
+    if (a.plan !== 'busy') this.rest(a, now)
+  }
+
   // Everyone a frame on; the actors gone long enough are dropped.
   step(now) {
     const dt = this.last === null ? 0 : Math.min(0.25, (now - this.last) / 1000)
@@ -319,6 +340,7 @@ export class Farm {
         if (now - a.leftAt > LEAVE_MS) this.actors.delete(a.sid)
         continue
       }
+      if (a.held) continue
       // Busy (working, asking, your move, compacting): he stops and faces you.
       if (a.agent.kind !== 'idle') {
         if (a.plan !== 'busy') {
@@ -362,10 +384,14 @@ export class Farm {
     return pose ? { [pose]: true } : null
   }
 
-  // Who is at x, y (world pixels), the one in front first; or null.
-  hit(x, y) {
+  // Who is at x, y (world pixels), the one in front first; or null. Each
+  // one `grown(a)` times his size (the Desktop's grow with their context).
+  hit(x, y, grown = () => 1) {
     const near = [...this.actors.values()]
-      .filter(a => a.leftAt === null && x >= a.x - 18 && x <= a.x + 18 && y >= a.y - 40 && y <= a.y + 4)
+      .filter(a => {
+        const k = grown(a)
+        return a.leftAt === null && x >= a.x - 18 * k && x <= a.x + 18 * k && y >= a.y - 40 * k && y <= a.y + 4 * k
+      })
       .sort((p, q) => q.y - p.y)
     return near[0] ?? null
   }

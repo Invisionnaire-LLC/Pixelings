@@ -4,7 +4,7 @@
 // Emits 'change' when what the page shows changes, 'brightness' when that
 // does, 'login' when starting at login is turned on or off, 'outputs' when
 // a display is turned on or off, 'farm' when the farm's screen or window
-// changes, 'desktop' when the Desktop's screen or layering does.
+// changes, 'desktop' when the Desktop's screen, size, growing or layering does.
 import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
@@ -16,7 +16,7 @@ import { castFor, CAST_FILE, loadCast, moveSeat, restyle, saveCast } from './cas
 import { CodexSessions } from './codex.js'
 import { GrokBotSessions } from './grokbot.js'
 import { focuser, Hosts, TERMINALS } from './host.js'
-import { BUILT_OUTPUTS, FARM_SIZES, farmWindowFrom, outputsFrom, STRIP_EDGES, STRIP_HEIGHTS } from './mode.js'
+import { BUILT_OUTPUTS, desktopSizeFrom, FARM_SIZES, farmWindowFrom, outputsFrom, STRIP_EDGES, STRIP_HEIGHTS } from './mode.js'
 import { dirs } from './paths.js'
 import { DEFAULT_FLASHES, enabledFlashes, FLASH_COLORS, FLASH_EVENTS, FLASH_OPTIONS, FLASH_STYLES } from './render.js'
 
@@ -213,10 +213,13 @@ export class Hub extends EventEmitter {
     } catch {
       // Grok Bot's files unreadable for now: the rest still show.
     }
+    const all = [...this.readAgents(now), ...codex, ...grok]
+    const dismissed = this.keepDismissed(all)
     // Idle a while, he leaves the deck (Hide Idle Agents After); started by
-    // another agent, he is not on it unless asked for.
-    const agents = [...this.readAgents(now), ...codex, ...grok].filter(
-      a => !hiddenIdle(a, now, this.hideIdleMs()) && (this.agentStarted() || !a.byAgent),
+    // another agent, he is not on it unless asked for; dismissed, he is
+    // gone until his session does something again.
+    const agents = all.filter(
+      a => !hiddenIdle(a, now, this.hideIdleMs()) && (this.agentStarted() || !a.byAgent) && !dismissed.has(a.sid),
     )
     const next = castFor(
       [...agents].sort((a, b) => a.startedAt - b.startedAt).map(a => a.sid),
@@ -244,6 +247,31 @@ export class Hub extends EventEmitter {
     return agents
   }
 
+  // Dismissed agents (settings.dismissed: sid → his `since` then) that are
+  // still dismissed: those whose session has done nothing since. One that
+  // has, or whose session is gone, is forgotten, so he shows again.
+  keepDismissed(all) {
+    const saved = this.settings.dismissed ?? {}
+    const keep = {}
+    for (const a of all) if (Object.hasOwn(saved, a.sid) && (a.since ?? 0) <= saved[a.sid]) keep[a.sid] = saved[a.sid]
+    if (Object.keys(keep).length !== Object.keys(saved).length) {
+      this.settings.dismissed = keep
+      this.saveSettings()
+    }
+    return new Set(Object.keys(keep))
+  }
+
+  // Dismisses one (a right-click on him): whatever he was doing is cleared
+  // and he leaves every display, until his session does something again.
+  dismiss(sid) {
+    const agent = this.agents.find(a => a.sid === sid)
+    if (!agent) return false
+    this.settings.dismissed = { ...this.settings.dismissed, [sid]: agent.since ?? 0 }
+    this.saveSettings()
+    this.refresh()
+    return true
+  }
+
   changed() {
     const state = JSON.stringify(this.state())
     if (state !== this.shown) {
@@ -268,6 +296,8 @@ export class Hub extends EventEmitter {
       desktopDisplay: this.desktopDisplay(),
       desktopOnTop: this.desktopOnTop(),
       desktopContext: this.desktopContext(),
+      desktopSize: this.desktopSize(),
+      desktopGrow: this.desktopGrow(),
       displays: this.displays,
       app: this.appInfo,
       agents: this.agents.map(a => ({
@@ -549,6 +579,35 @@ export class Hub extends EventEmitter {
     if (typeof on !== 'boolean') return false
     this.settings.desktopContext = on
     this.saveSettings()
+    this.changed()
+    return true
+  }
+
+  // How big they are on the Desktop (mode.js): 1 to 3, in half steps.
+  desktopSize() {
+    return desktopSizeFrom(this.settings)
+  }
+
+  setDesktopSize(size) {
+    if (desktopSizeFrom({ desktopSize: size }) !== size) return false
+    this.settings.desktopSize = size
+    this.saveSettings()
+    this.emit('desktop')
+    this.changed()
+    return true
+  }
+
+  // Whether they grow on the Desktop as their context fills, up to twice
+  // as big (mode.js). Off until changed.
+  desktopGrow() {
+    return this.settings.desktopGrow === true
+  }
+
+  setDesktopGrow(on) {
+    if (typeof on !== 'boolean') return false
+    this.settings.desktopGrow = on
+    this.saveSettings()
+    this.emit('desktop')
     this.changed()
     return true
   }

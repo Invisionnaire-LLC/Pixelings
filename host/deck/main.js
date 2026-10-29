@@ -288,7 +288,7 @@ function placeDesktop() {
   const chosen = hub.outputs().desktop ? pickDesktopDisplay(list, hub.desktopDisplay()) : null
   const display = chosen && screen.getAllDisplays().find(d => d.id === chosen.id)
   if (!display) return closeDesktop()
-  const bounds = desktopBounds(display)
+  const bounds = desktopBounds(display, hub.desktopSize(), hub.desktopGrow())
   const onTop = hub.desktopOnTop()
   if (desktopWin) desktopWin.setBounds(bounds)
   else {
@@ -333,6 +333,12 @@ ipcMain.on('desktop-front', (e, list) => {
   if (!desktopWin || e.sender !== desktopWin.webContents || !Array.isArray(list)) return
   desktopAsking = list
   desktopFrontWin?.webContents.send('desktop-front', list)
+})
+
+// One dragged in the front page: the back page puts him down there.
+ipcMain.on('desktop-move', (e, put) => {
+  if (!desktopFrontWin || e.sender !== desktopFrontWin.webContents || typeof put?.sid !== 'string') return
+  desktopWin?.webContents.send('desktop-move', { sid: put.sid, x: Number(put.x), y: Number(put.y) })
 })
 
 // ---- The Stream Deck, while it's on ----

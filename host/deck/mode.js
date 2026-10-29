@@ -120,8 +120,17 @@ export function farmBounds(display, win, saved) {
 // The Desktop's world height in world pixels: room for him, his tag and
 // his "?" bubble over his feet, and his context bar under them.
 export const DESKTOP_H = 84
-// Screen points to a world pixel on the Desktop.
-export const DESKTOP_SCALE = 2
+// How big they are on the Desktop: screen points to a world pixel, in
+// half steps (still whole screen pixels on a Retina screen). 1.5 until
+// changed.
+export const DESKTOP_SIZES = { min: 1, max: 3, step: 0.5, default: 1.5 }
+
+// The Desktop's size, from the saved settings.
+export function desktopSizeFrom(settings) {
+  const v = settings?.desktopSize
+  const { min, max, step } = DESKTOP_SIZES
+  return typeof v === 'number' && v >= min && v <= max && Number.isInteger(v / step) ? v : DESKTOP_SIZES.default
+}
 
 // The Desktop's screen: 'auto' (the main one) or a screen's id; a chosen
 // screen that is unplugged shows nothing.
@@ -131,11 +140,22 @@ export function pickDesktopDisplay(displays, choice) {
   return displays.find(d => d.primary) ?? displays[0] ?? null
 }
 
-// Where the Desktop's see-through window goes on `display` ({ workArea }):
-// a band along the bottom of where windows go, so over the Dock or the
-// taskbar, never under it.
-export function desktopBounds(display) {
+// Growing with their context, how much bigger one is when it is full.
+export const DESKTOP_GROW = 2
+
+// How many times bigger one is on the Desktop for `pct` of his context
+// used, when they grow with it: 1 empty, DESKTOP_GROW full.
+export function desktopGrowth(pct) {
+  if (typeof pct !== 'number' || !(pct > 0)) return 1
+  return 1 + ((DESKTOP_GROW - 1) * Math.min(100, pct)) / 100
+}
+
+// Where the Desktop's see-through window goes on `display` ({ workArea }),
+// them `size` big: a band along the bottom of where windows go, so over
+// the Dock or the taskbar, never under it. Growing with their context, it
+// is tall enough for one at his biggest.
+export function desktopBounds(display, size = DESKTOP_SIZES.default, grow = false) {
   const wa = display.workArea
-  const height = Math.min(DESKTOP_H * DESKTOP_SCALE, wa.height)
+  const height = Math.min(Math.round(DESKTOP_H * size * (grow ? DESKTOP_GROW : 1)), wa.height)
   return { x: wa.x, y: wa.y + wa.height - height, width: wa.width, height }
 }
